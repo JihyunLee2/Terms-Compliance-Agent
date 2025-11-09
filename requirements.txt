@@ -1,0 +1,17 @@
+# LangChain 및 Upstage 관련
+langchain
+langchain-core
+langchain-upstage
+langchain-community
+langchain-chroma
+langchain-text-splitters
+langgraph
+
+# 데이터 처리 및 기타 유틸리티
+pandas
+python-dotenv
+pypdf # PDF 파일 로더 사용을 위한 필수 패키지
+pyarrow # Pandas가 대용량 파일/특정 환경에서 사용할 수 있음 (안정성 확보를 위해 포함)
+
+# 사용자 인터페이스
+streamlit
