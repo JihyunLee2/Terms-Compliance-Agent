@@ -8,7 +8,17 @@
 3. 유사도 임계점 추가
 4. 코사인 유사도로 변경(DB 삭제하고 다시 구축해야 적용됩니다.)
 
+<br />
+
+251114
+5. pdf 탭 추가
+6. 바뀐 csv 파일대로, '유형' 열을 '대분류'로 변경
+7. 청킹 방법 변경 -> 의미 단위로 청킹
+7. 개선안 형식 변경 (진행 중)
+8. 유형 분류 프롬프트 추가 (진행 중)
 
 ### 실행 전 라이브러리 설치
 
-pip install langchain_upstage langchain_chroma langgraph langchain-community python-dotenv pandas pypdf
+```bash
+pip install -r requirements.txt
+```
