@@ -1,7 +1,3 @@
-# 시정요청상세내용도 벡터디비에 넣기, 청크사이즈 250으로 줄이기
-
-# build_vectordb.py
-
 import os
 import pandas as pd
 from datetime import datetime
@@ -69,8 +65,19 @@ def build_vectordb():
         docs = loader.load()
         
         splitter = RecursiveCharacterTextSplitter(
-            chunk_size=250,
-            chunk_overlap=50
+            # '제N조' 단위로 잘라도 1000자를 넘는 긴 조항을 대비한 2차 안전망
+            chunk_size=1000, 
+            chunk_overlap=150,
+            
+            # 분리 기준(separators)을 법률 구조에 맞게 지정
+            # "제N조", "①" 같은 패턴을 우선 분리 기준으로 삼음
+            separators=[
+                "\n\n제",  # "제N조" (가장 큰 단위)
+                "\n\n",   # 문단
+                "\n",     # 줄바꿈
+                " ",
+                ""
+            ]
         )
         chunks = splitter.split_documents(docs)
         
@@ -87,7 +94,7 @@ def build_vectordb():
     print(f"법령 처리 완료: {len(documents)}개 청크\n")
     
     print("불공정 사례 처리 중...")
-    df = pd.read_csv('불공정사례, 약관법 등 데이터_(편집중) - 불공정사례.csv', encoding='utf-8')
+    df = pd.read_csv('kftc_unfair_terms_cases.csv', encoding='utf-8')
     print(f"총 사례 수: {len(df)}\n")
     
     print("=" * 60)
@@ -140,7 +147,7 @@ def build_vectordb():
             page_content = f"약관: {term_text}\n\n결론: {conclusion_text}"
             
             explanation = row.get('시정 요청 설명', '')
-            case_type = row.get('유형', '')
+            case_type = row.get('대분류', '')
             related_law = row.get('관련법(약관법)', '')
             ref_law = row.get('참고 법', '')
             ref_explanation = row.get('참고 법 설명', '')
