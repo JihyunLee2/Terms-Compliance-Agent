@@ -1,49 +1,29 @@
-# 시정요청상세내용도 벡터디비에 넣기, 청크사이즈 250으로 줄이기
-
-# build_vectordb.py
-
 import os
 import pandas as pd
 from datetime import datetime
 from dotenv import load_dotenv
+
+# 이 스크립트(build_vectordb.py)가 있는 폴더의 부모 폴더(프로젝트 루트)를
+# 파이썬 경로에 추가합니다.
+import sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 from langchain_upstage import UpstageEmbeddings
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
 import json
+import utils
 
 load_dotenv()
 
-def clean_page_content(text: str) -> str:
-    lines = text.split('\n')
-    cleaned_lines = []
-    for line in lines:
-        if any(pattern in line for pattern in [
-            '법제처', '국가법령정보센터', '제1장', '제2장',
-            '전문개정', '[시행', '[법률'
-        ]):
-            continue
-        if line.strip().isdigit():
-            continue
-        if line.strip():
-            cleaned_lines.append(line)
-    return '\n'.join(cleaned_lines).strip()
-
-def parse_date_safe(date_val):
-    """YYYY-MM-DD 형식 날짜를 안전하게 파싱"""
-    try:
-        if pd.isna(date_val):
-            return None
-        
-        date_str = str(date_val).strip()
-        
-        parsed = pd.to_datetime(date_str, format='%Y-%m-%d')
-        return parsed
-    
-    except Exception as e:
-        print(f"⚠ 날짜 파싱 오류 - 입력값: {date_val}, 오류: {str(e)}")
-        return None
+# --- [추가/수정] 데이터 폴더 경로 지정 ---
+# 이 스크립트(build_vectordb.py)가 있는 'scripts' 폴더의
+# 부모 폴더(루트)를 기준으로 'data' 폴더 경로를 설정합니다.
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DATA_DIR = os.path.join(BASE_DIR, 'data')
+# ------------------------------------
 
 def build_vectordb():
     print("벡터 DB 생성 중...")
@@ -60,22 +40,40 @@ def build_vectordb():
     ]
     
     for pdf_file in pdf_files:
-        if not os.path.exists(pdf_file):
+        # if not os.path.exists(pdf_file):
+        if not os.path.exists(file_path): # (수정)
             print(f"경고: {pdf_file}을(를) 찾을 수 없습니다")
             continue
         
         print(f"처리 중: {pdf_file}")
-        loader = PyPDFLoader(pdf_file)
+        # loader = PyPDFLoader(pdf_file)
+        loader = PyPDFLoader(file_path)  # (수정)
         docs = loader.load()
         
+        # splitter = RecursiveCharacterTextSplitter(
+        #     chunk_size=250,
+        #     chunk_overlap=50
+        # )
         splitter = RecursiveCharacterTextSplitter(
-            chunk_size=250,
-            chunk_overlap=50
+            # '제N조' 단위로 잘라도 1000자를 넘는 긴 조항을 대비한 2차 안전망
+            chunk_size=1000, 
+            chunk_overlap=150,
+            
+            # 분리 기준(separators)을 법률 구조에 맞게 지정
+            # "제N조", "①" 같은 패턴을 우선 분리 기준으로 삼음
+            separators=[
+                "\n\n제",  # "제N조" (가장 큰 단위)
+                "\n\n",   # 문단
+                "\n",     # 줄바꿈
+                " ",
+                ""
+            ]
         )
+        
         chunks = splitter.split_documents(docs)
         
         for chunk in chunks:
-            cleaned_content = clean_page_content(chunk.page_content)
+            cleaned_content = utils.clean_page_content(chunk.page_content)
             if len(cleaned_content) < 30:
                 continue
             
@@ -87,7 +85,10 @@ def build_vectordb():
     print(f"법령 처리 완료: {len(documents)}개 청크\n")
     
     print("불공정 사례 처리 중...")
-    df = pd.read_csv('1028ver2.csv', encoding='utf-8')
+    # --- [수정] data 폴더에서 CSV 파일 읽기 ---
+    csv_path = os.path.join(DATA_DIR, 'kftc_unfair_terms_cases.csv')
+    df = pd.read_csv(csv_path, encoding='utf-8') # (수정)
+    # df = pd.read_csv('kftc_unfair_terms_cases.csv', encoding='utf-8')  # 불공정 사례 115개 11/13
     print(f"총 사례 수: {len(df)}\n")
     
     print("=" * 60)
@@ -95,7 +96,7 @@ def build_vectordb():
     print("=" * 60)
     sample_dates = df['보도시점'].dropna().head(5).tolist()
     for i, date_val in enumerate(sample_dates):
-        parsed = parse_date_safe(date_val)
+        parsed = utils.parse_date_safe(date_val)
         print(f"샘플 {i+1}: 입력={date_val}, 파싱됨={parsed}")
     print("=" * 60 + "\n")
     
@@ -103,7 +104,7 @@ def build_vectordb():
     failed_count = 0
     
     for date_val in df['보도시점'].dropna():
-        parsed = parse_date_safe(date_val)
+        parsed = utils.parse_date_safe(date_val)
         if parsed is not None:
             valid_dates.append(parsed)
         else:
@@ -130,7 +131,7 @@ def build_vectordb():
             if pd.isna(term_text) or pd.isna(conclusion_text):
                 continue
             
-            report_date = parse_date_safe(row['보도시점'])
+            report_date = utils.parse_date_safe(row['보도시점'])
             if report_date is None:
                 continue
             
@@ -140,10 +141,11 @@ def build_vectordb():
             page_content = f"약관: {term_text}\n\n결론: {conclusion_text}"
             
             explanation = row.get('시정 요청 설명', '')
-            case_type = row.get('유형', '')
+            case_type = row.get('대분류', '')  # 유형에서 현재 컬럼에 맞게 대분류로 변경   11/13
             related_law = row.get('관련법(약관법)', '')
             ref_law = row.get('참고 법', '')
             ref_explanation = row.get('참고 법 설명', '')
+            fairness = row.get('공정여부', '')  # 공정여부 추가 11/13
             
             metadata = {
                 'source_type': 'case',
@@ -151,6 +153,7 @@ def build_vectordb():
                 'date': date_str,
                 'date_timestamp': timestamp,
                 'case_type': case_type if not pd.isna(case_type) else '',
+                'fairness': fairness if not pd.isna(fairness) else "",  # 공정여부 추가 11/13
                 'explanation': explanation if not pd.isna(explanation) else '',
                 'conclusion': conclusion_text,
                 'related_law': related_law if not pd.isna(related_law) else '',
@@ -178,7 +181,8 @@ def build_vectordb():
         documents=documents,
         embedding=embeddings,
         persist_directory="./chroma_db",
-        collection_name="contract_laws"
+        collection_name="contract_laws",
+        collection_metadata={"hnsw:space": "cosine"}
     )
     
     config_data = {

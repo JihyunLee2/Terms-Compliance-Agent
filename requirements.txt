@@ -1,0 +1,18 @@
+# LangChain / LangGraph
+langchain
+langchain-core
+langgraph
+langchain-chroma
+langchain-upstage
+langchain-text-splitters
+chromadb
+
+# Streamlit (Web App)
+streamlit
+
+# Data Handling
+pandas
+pypdf
+
+# Config
+python-dotenv
