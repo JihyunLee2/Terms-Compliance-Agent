@@ -29,6 +29,7 @@ UPSTAGE_API_KEY=your_upstage_api_key_here
 LANGSMITH_API_KEY=your_langsmith_api_key_here
 LANGSMITH_TRACING=true
 LANGSMITH_PROJECT=project_name
+```
 
 ## 폴더 구조
 /
