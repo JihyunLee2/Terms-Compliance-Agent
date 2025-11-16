@@ -9,6 +9,7 @@ from langchain_core.tracers.context import tracing_v2_enabled
 from prompts import ACTIVE_IMPROVEMENT_EVAL_PROMPT
 from dotenv import load_dotenv
 import re
+import argparse
 
 load_dotenv()
 
@@ -37,7 +38,7 @@ def evaluate_improvement_with_llm(original_clause: str, improvement_proposal: st
             "adoptability": {"decision": "NO", "reason": "JSON 파싱 실패"}
         }
 
-def evaluate_classification(langsmith_project: str, eval_file='batch_test_results.jsonl'):
+def evaluate_classification(langsmith_project: str, eval_file='batch_test_results.jsonl', scope: str = 'full'):
 
     eval_data = []
     
@@ -61,20 +62,54 @@ def evaluate_classification(langsmith_project: str, eval_file='batch_test_result
     y_true_fairness = df_labeled['label'].map({'fair': '공정', 'unfair': '불공정'})
     y_pred_fairness = df_labeled['predicted_fairness']
     
-    print(classification_report(y_true_fairness, y_pred_fairness))
+    # --- 1. 평가 지표를 테이블로 출력 ---
+    print("[Classification Report Table]")
+    report_dict = classification_report(
+        y_true_fairness, 
+        y_pred_fairness, 
+        labels=['공정', '불공정'],
+        output_dict=True,
+        zero_division=0
+    )
+    df_report = pd.DataFrame(report_dict).transpose()
+    print(df_report.to_markdown(floatfmt=".4f"))
     
-    cm_fairness = confusion_matrix(y_true_fairness, y_pred_fairness, labels=['공정', '불공정'])
+    acc = accuracy_score(y_true_fairness, y_pred_fairness)
+    print(f"\nOverall Accuracy: {acc:.4f}\n")
+    # -------------------------------------------
     
+    # print(classification_report(y_true_fairness, y_pred_fairness))
+    
+    # ---  2. 혼동 행렬 (1) - 숫자 (Counts) ---
+    cm_fairness_counts = confusion_matrix(y_true_fairness, y_pred_fairness, labels=['공정', '불공정'])
     plt.figure(figsize=(8, 6))
-    sns.heatmap(cm_fairness, annot=True, fmt='d', cmap='Blues',
+    sns.heatmap(cm_fairness_counts, annot=True, fmt='d', cmap='Blues',
                 xticklabels=['fair', 'unfair'], yticklabels=['fair', 'unfair'])
-    plt.title(f'fair/unfair Confusion Matrix (n={len(df_labeled)})')
+    plt.title(f'fair/unfair Confusion Matrix (Counts, n={len(df_labeled)})')
     plt.ylabel('Actual')
     plt.xlabel('Predicted')
     plt.tight_layout()
-    plt.savefig('fairness_confusion_matrix.png', dpi=300)
-    print("\n✓ 저장: fairness_confusion_matrix.png\n")
+    plt.savefig('fairness_confusion_matrix_counts.png', dpi=300)
+    print("\n✓ 저장: fairness_confusion_matrix_counts.png")
+    plt.close() # [수정] 그래프 창 닫기
     
+    # ---  3. 혼동 행렬 (2) - 확률 (Normalized) ---
+    cm_fairness_normalized = confusion_matrix(
+        y_true_fairness, 
+        y_pred_fairness, 
+        labels=['공정', '불공정'], #labels=['fair', 'unfair']
+        normalize='true' # 'true': 정답(row) 기준 정규화
+    )
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(cm_fairness_normalized, annot=True, fmt='.2%', cmap='Blues',
+                xticklabels=['fair', 'unfair'], yticklabels=['fair', 'unfair'])
+    plt.title(f'fair/unfair Confusion Matrix (Normalized by True Label, n={len(df_labeled)})')
+    plt.ylabel('Actual')
+    plt.xlabel('Predicted')
+    plt.tight_layout()
+    plt.savefig('fairness_confusion_matrix_normalized.png', dpi=300)
+    print("✓ 저장: fairness_confusion_matrix_normalized.png\n")
+    plt.close() #  그래프 창 닫기
     
     print("=" * 60)
     print("2단계: 불공정 유형 분류 평가")
@@ -103,11 +138,13 @@ def evaluate_classification(langsmith_project: str, eval_file='batch_test_result
     # 2. predicted_type에서 괄호 안 내용 추출 함수
     def extract_type(pred_str):
         if pd.isna(pred_str):
-            return None
-        match = re.search(r'\((.+?)\)', str(pred_str))
+            return "N/A"
+ 
+        # [수정] 정규식: 쉼표(,)나 닫는 괄호()) 이전의 "숫자. 유형명" 패턴만 추출
+        match = re.search(r'(\d+\.\s*[^,)]+)', str(pred_str))
         if match:
-            return match.group(1)
-        return pred_str
+            return match.group(1).strip() # "1. 서비스 일방적 변경·중단"
+        return pred_str # 매칭 실패 시 원본 반환
 
     # 3. 데이터 추출 및 전처리
     y_true_type = df_unfair['ground_truth_type']
@@ -129,20 +166,68 @@ def evaluate_classification(langsmith_project: str, eval_file='batch_test_result
     # 5. 한국어→영어 변환
     y_true_type_en = [label_mapping.get(label, label) for label in y_true_type]
     y_pred_type_en = [label_mapping.get(label, label) for label in y_pred_type]
+    
+    # --- [수정] 1. 평가 지표를 테이블로 출력 (2단계) ---
+    print("[Unfair Type Classification Report Table]")
+    # 'all_labels_present' 대신 'labels_en' (고정 8종) 기준으로 리포트
+    report_dict_type = classification_report(
+        y_true_type_en, 
+        y_pred_type_en, 
+        labels=labels_en, # 고정 8종 라벨
+        output_dict=True,
+        zero_division=0
+    )
+    df_report_type = pd.DataFrame(report_dict_type).transpose()
+    print(df_report_type.to_markdown(floatfmt=".4f"))
 
-    # 6. 혼동행렬 계산 및 시각화
-    cm_type = confusion_matrix(y_true_type_en, y_pred_type_en, labels=labels_en)
+    acc_type = accuracy_score(y_true_type_en, y_pred_type_en)
+    print(f"\nOverall Unfair Type Accuracy (8종 기준): {acc_type:.4f}\n")
+    # ------------------------------------------------
+
+    # --- [수정] 2. 혼동 행렬 (1) - 숫자 (Counts) ---
+    # 라벨 순서를 labels_en (고정 8종)으로 지정
+    cm_type_counts = confusion_matrix(y_true_type_en, y_pred_type_en, labels=labels_en)
     plt.figure(figsize=(14, 12))
-    sns.heatmap(cm_type, annot=True, fmt='d', cmap='YlOrRd',
+    sns.heatmap(cm_type_counts, annot=True, fmt='d', cmap='YlOrRd',
                 xticklabels=labels_en, yticklabels=labels_en)
-    plt.title(f'Unfair Type Confusion Matrix (n={len(df_unfair)})')
+    plt.title(f'Unfair Type Confusion Matrix (Counts, n={len(df_unfair)})')
     plt.ylabel('Actual Type')
     plt.xlabel('Predicted Type')
     plt.xticks(rotation=45, ha='right')
     plt.yticks(rotation=0)
     plt.tight_layout()
-    plt.savefig('unfair_type_confusion_matrix.png', dpi=300)
-    print("\n✓ Saved: unfair_type_confusion_matrix.png\n")
+    plt.savefig('unfair_type_confusion_matrix_counts.png', dpi=300)
+    print("\n✓ Saved: unfair_type_confusion_matrix_counts.png")
+    plt.close() # [수정] 그래프 창 닫기
+    
+    # --- [수정] 3. 혼동 행렬 (2) - 확률 (Normalized) ---
+    cm_type_normalized = confusion_matrix(
+        y_true_type_en, 
+        y_pred_type_en, 
+        labels=labels_en,
+        normalize='true'
+    )
+    plt.figure(figsize=(14, 12))
+    sns.heatmap(cm_type_normalized, annot=True, fmt='.2%', cmap='YlOrRd',
+                xticklabels=labels_en, yticklabels=labels_en)
+    plt.title(f'Unfair Type Confusion Matrix (Normalized by True Label, n={len(df_unfair)})')
+    plt.ylabel('Actual Type')
+    plt.xlabel('Predicted Type')
+    plt.xticks(rotation=45, ha='right')
+    plt.yticks(rotation=0)
+    plt.tight_layout()
+    plt.savefig('unfair_type_confusion_matrix_normalized.png', dpi=300)
+    print("✓ Saved: unfair_type_confusion_matrix_normalized.png\n")
+    plt.close() # [수정] 그래프 창 닫기
+    
+    # [수정] scope가 'classify_only'이면 여기서 함수 종료
+    if scope == 'classify_only':
+        print("\n" + "=" * 60)
+        print("Scope is 'classify_only'. Skipping Steps 3 and 4.")
+        print("Classification evaluation finished.")
+        print("=" * 60)
+        return # 함수를 여기서 종료합니다.
+    # ---
     
     print("=" * 60)
     print("3단계: 개선안 실효성 평가 (LLM Judge)")
@@ -269,8 +354,45 @@ def evaluate_classification(langsmith_project: str, eval_file='batch_test_result
         print("\n✓ 저장: rag_retrieval_distribution.png\n")
 
 if __name__ == "__main__":
-    import sys
-    project_name = sys.argv[1] if len(sys.argv) > 1 else "contract-review-eval"
-    evaluate_classification(langsmith_project=project_name, eval_file='batch_test_results.jsonl')
+    # [수정] sys.argv 대신 argparse 사용
+    parser = argparse.ArgumentParser(description="Evaluate batch test results.")
+    
+    parser.add_argument(
+        "eval_file", 
+        type=str, 
+        help="Path to the batch test results JSONL file. (e.g., batch_test_results.jsonl)"
+    )
+    
+    parser.add_argument(
+        "project_name", 
+        type=str, 
+        nargs='?', # ?는 0개 또는 1개를 의미
+        default="contract-review-eval", 
+        help="LangSmith project name (default: contract-review-eval)"
+    )
+    
+    parser.add_argument(
+        "--scope", 
+        type=str, 
+        choices=['full', 'classify_only'], # 2가지 옵션
+        default='full', 
+        help="Evaluation scope: 'full' (all steps) or 'classify_only' (classification only)."
+    )
+    
+    args = parser.parse_args()
+    
+    print(f"Starting evaluation...")
+    print(f"  Input file: {args.eval_file}")
+    print(f"  Project name: {args.project_name}")
+    print(f"  Scope: {args.scope}\n")
+    
+    # [수정] scope 인자 전달
+    evaluate_classification(
+        langsmith_project=args.project_name, 
+        eval_file=args.eval_file,
+        scope=args.scope
+    )
 
-# python evaluation.py evaluation
+    # [실행 명령어 예시]
+    # (분류만 평가) python evaluation.py batch_test_results.jsonl evaluation --scope classify_only
+    # (전체 평가)   python evaluation.py batch_test_results.jsonl evaluation
