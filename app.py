@@ -130,7 +130,7 @@ def retrieve_node(state: ContractState, vectorstore):
     current_threshold = state.get('similarity_threshold', SIMILARITY_THRESHOLD)
     print(f"[노드3] 검색 (임계값: {current_threshold:.0%})")
     
-    search_query = f"{state['unfair_type']} {state['cleaned_text']}"
+    search_query = f"{state['cleaned_text']}"
     
     # 1. 사례 검색 (유사도 점수 포함)
     # 이 함수는 (doc, similarity_score) 튜플을 반환합니다. (1.0이 100% 유사)
@@ -232,7 +232,7 @@ def generate_proposal_node(state: ContractState):
         final_output += f"❌ **{unfair_type}**\n"
         
     # 1. 쿼리와 유사한 사례
-    final_output += "\n### 1. 유사한 사례\n"
+    final_output += "\n### 1. 유사 불공정 사례\n"
     if not cases_meta:
         final_output += "관련 사례를 찾지 못했습니다.\n"
     else:
@@ -640,6 +640,7 @@ def get_app_and_vectorstore():
 def main_chatbot_ui():
     st.set_page_config(page_title="법률 약관 검토 챗봇", layout="wide")
     st.title("법률 약관 검토 챗봇")
+    st.caption("본 분석은 법적 효력을 가지지 않으며, 법률 자문을 대체하지 않습니다. 중대한 법적 판단은 반드시 자격 있는 법률 전문가와의 상담을 통해 이루어져야 합니다.")
     
     with st.sidebar:
         st.header("검색 설정")
@@ -669,6 +670,7 @@ def main_chatbot_ui():
     
     with tab2:
         run_pdf_batch_mode(app, vectorstore, current_threshold_value)
+
 
 def run_chatbot_mode(app, current_threshold_value):
     if "messages" not in st.session_state:
