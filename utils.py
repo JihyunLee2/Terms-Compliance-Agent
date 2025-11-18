@@ -43,7 +43,12 @@ def is_valid_contract_clause(clause: str) -> tuple[bool, str]:
         return False, "약관 관련 키워드 미검출 (예: 조항, 약관, 조건, 의무 등)"
     
     if any(q in clause for q in ['?', '？']): # 전각, 반각
-        return False, "질문 형식으로 보입니다. 약관 조항을 입력해주세요"
+        return False, "질문 형식으로 보입니다. 약관 조항을 입력해주세요."
+    
+    if any(q in clause for q in ['안녕하세요', '반갑습니다', '뭐해', '뭐야',
+        '어때', '날씨', '오늘', '내일', '궁금해', '알려줘',
+        '재밌', '슬프', '기쁘', '화나']):
+        return False, "일상 대화 형식으로 보입니다. 약관 조항을 입력해주세요."
     
     return True, "검증 통과"
 
