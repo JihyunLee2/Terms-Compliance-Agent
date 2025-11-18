@@ -31,52 +31,57 @@ def run_chatbot_mode(app, current_threshold_value):
         """
         })
 
+    # 1. 채팅 메시지 기록을 먼저 출력
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
     
-    if st.session_state.hitl_pending:
-        current_iteration = st.session_state.current_state.get('iteration', 1)
+    # 2. RAG 결과(유사 사례)가 state에 존재할 경우, expander를 출력
+    # (RAG 실행 전에는 'cases'가 None이므로 이 블록은 건너뜀)
+    cases = st.session_state.current_state.get('retrieved_cases_metadata', None)
+    
+    if SHOW_RETRIEVED_CASES and cases is not None:
         used_threshold = st.session_state.current_state.get('similarity_threshold', SIMILARITY_THRESHOLD)
         
-        if SHOW_RETRIEVED_CASES:
-            with st.expander("참고한 유사 사례 보기", expanded=False):
-                cases = st.session_state.current_state.get('retrieved_cases_metadata', [])
+        with st.expander("참고한 유사 사례 보기", expanded=False):
+            if cases:
+                st.caption(f"총 {len(cases)}개 사례 (유사도 {used_threshold:.0%} 이상)")
                 
-                if cases:
-                    st.caption(f"총 {len(cases)}개 사례 (유사도 {used_threshold:.0%} 이상)")
+                for case in cases:
+                    similarity = case['similarity']
                     
-                    for case in cases:
-                        similarity = case['similarity']
+                    if similarity >= 0.7:
+                        color = "🟢"
+                    elif similarity >= 0.5:
+                        color = "🟡"
+                    else:
+                        color = "🟠"
+                    
+                    st.markdown(f"### {color} 사례 {case['index']} - 유사도: {similarity:.1%}")
+                    st.caption(f"📅 {case['date']} | 유형: {case['case_type']}")
+                    
+                    with st.container():
+                        st.markdown("**불공정 약관 조항:**")
+                        st.info(case['content'].split('결론:')[0].replace('약관: ', '').strip())
                         
-                        if similarity >= 0.7:
-                            color = "🟢"
-                        elif similarity >= 0.5:
-                            color = "🟡"
-                        else:
-                            color = "🟠"
-                        
-                        st.markdown(f"### {color} 사례 {case['index']} - 유사도: {similarity:.1%}")
-                        st.caption(f"📅 {case['date']} | 유형: {case['case_type']}")
-                        
-                        with st.container():
-                            st.markdown("**약관 조항:**")
-                            st.info(case['content'].split('결론:')[0].replace('약관: ', '').strip())
+                        if case['explanation']:
+                            st.markdown("**시정 요청 사유:**")
+                            st.warning(case['explanation'])
                             
-                            if case['explanation']:
-                                st.markdown("**시정 요청 사유:**")
-                                st.warning(case['explanation'])
-                                
-                            if case['conclusion']:
-                                st.markdown("**최종 결론:**")
-                                st.success(case['conclusion'])
-                            
-                            if case['related_law']:
-                                st.caption(f"🔗 관련법: {case['related_law']}")
+                        if case['conclusion']:
+                            st.markdown("**최종 결론:**")
+                            st.success(case['conclusion'])
                         
-                        st.divider()
-                else:
-                    st.warning("검색된 사례가 없습니다.")
+                        if case['related_law']:
+                            st.caption(f"🔗 관련법: {case['related_law']}")
+                    
+                    st.divider()
+            else:
+                st.warning("검색된 사례가 없습니다.")
+    
+    # 3. 피드백 대기 상태(hitl_pending)인 경우, 피드백 UI 출력
+    if st.session_state.hitl_pending:
+        current_iteration = st.session_state.current_state.get('iteration', 1)
         
         st.info(f"개선안 (반복 {current_iteration}/{MAX_ITERATIONS})에 대한 피드백을 주세요.")
         
@@ -159,7 +164,9 @@ def run_chatbot_mode(app, current_threshold_value):
         
         st.chat_input("피드백을 먼저 완료해주세요.", disabled=True)
 
+    # 4. 피드백 대기 상태가 아닌 경우, 채팅 입력창 활성화
     else:
+        # 4-1. 보류 중인 피드백이 있다면 먼저 처리
         if st.session_state.pending_feedback is not None:
             feedback_input = st.session_state.pending_feedback
             st.session_state.pending_feedback = None
@@ -199,8 +206,8 @@ def run_chatbot_mode(app, current_threshold_value):
                         st.error(f"피드백 처리 중 오류 발생: {e}")
                         st.session_state.hitl_pending = False
                         st.session_state.thread_id = None
-                        st.session_state.current_state = {}
 
+        # 4-2. 새 프롬프트(쿼리)를 받음
         elif prompt := st.chat_input("검토할 약관 조항을 입력하세요..."):
             st.session_state.messages.append({"role": "user", "content": prompt})
             with st.chat_message("user"):
@@ -225,8 +232,6 @@ def run_chatbot_mode(app, current_threshold_value):
                         with tracing_v2_enabled():
                             output = app.invoke(initial_state, config=config)
                         
-                        st.session_state.current_state = output
-                        
                         if output.get('validation_failed', False):
                             error_msg = f"입력 오류: {output.get('cleaned_text', '알 수 없는 오류')}"
                             st.error(error_msg)
@@ -235,6 +240,7 @@ def run_chatbot_mode(app, current_threshold_value):
                         # --- 수정 11/15---
                         # '공정'일 때와 '불공정'일 때를 분리
                         elif output.get('fairness_label') == "공정":
+                            st.session_state.current_state = output
                             # '공정'일 경우 (generate_fair_report_node 경유)
                             st.markdown(output['improvement_proposal'])
                             st.session_state.messages.append({
@@ -244,7 +250,9 @@ def run_chatbot_mode(app, current_threshold_value):
                             # '공정'이므로 피드백 대기(HITL) 없이 완료
                             st.session_state.hitl_pending = False 
                             st.session_state.thread_id = None # 세션 종료
+                            st.rerun()
                         else:
+                            st.session_state.current_state = output
                             # '불공정'일 경우 (generate_proposal_node 경유)
                             st.markdown("### 제안 (첫 번째 개선안)")
                             st.markdown(output['improvement_proposal'])
@@ -261,8 +269,6 @@ def run_chatbot_mode(app, current_threshold_value):
                         st.exception(traceback.format_exc())
                         st.session_state.thread_id = None
                         st.session_state.hitl_pending = False
-                        st.session_state.current_state = {}
-
 
 def main_chatbot_ui():
     st.set_page_config(page_title="약관 검토 챗봇", layout="wide")
