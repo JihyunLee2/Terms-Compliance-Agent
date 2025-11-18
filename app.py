@@ -83,85 +83,102 @@ def run_chatbot_mode(app, current_threshold_value):
     if st.session_state.hitl_pending:
         current_iteration = st.session_state.current_state.get('iteration', 1)
         
+        # --- [UI 상태 관리 변수 초기화] ---
+        if "show_modify_input" not in st.session_state:
+            st.session_state.show_modify_input = False
+
         st.info(f"개선안 (반복 {current_iteration}/{MAX_ITERATIONS})에 대한 피드백을 주세요.")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            st.subheader("수정 요청 (Modify)")
-            modify_reason = st.text_area("수정 요청 사유:", key="modify_reason_input")
+
+        # ============================================================
+        # [화면 A] 기본 버튼 선택 화면 (입력창 숨김 상태)
+        # ============================================================
+        if not st.session_state.show_modify_input:
+            col1, col2, col3 = st.columns(3)
             
-            if current_iteration >= MAX_ITERATIONS:
-                st.warning(f"반복 횟수 제한({MAX_ITERATIONS}회)에 도달하여 더 이상 수정 요청을 할 수 없습니다.")
+            # 1. 수락 버튼
+            with col1:
                 if st.button("현재 개선안 수락 (Approve)", use_container_width=True, type="primary"):
                     st.session_state.pending_feedback = {
                         "user_feedback": "approved",
-                        "modify_reason": "반복 횟수 제한 도달",
+                        "modify_reason": "",
                         "retry_action": ""
                     }
                     st.session_state.hitl_pending = False
                     st.session_state.messages.append({
                         "role": "user", 
-                        "content": "[피드백] 반복 초과로 현재 개선안을 수락합니다."
+                        "content": "[피드백] 개선안을 수락합니다 (완료)."
                     })
                     st.rerun()
+
+            # 2. 수정/재생성 버튼 (누르면 입력창 열림)
+            with col2:
+                if st.button("다른 개선안 생성 (Modify)", use_container_width=True):
+                    st.session_state.show_modify_input = True  # 상태 변경
+                    st.rerun()
+
+            # 3. 폐기 버튼
+            with col3:
+                if st.button("현재 개선안 폐기 (Discard)", use_container_width=True):
+                    st.session_state.pending_feedback = {
+                        "user_feedback": "rejected",
+                        "retry_action": "discard",
+                        "modify_reason": ""
+                    }
+                    st.session_state.hitl_pending = False
+                    st.session_state.messages.append({
+                        "role": "user", 
+                        "content": "[피드백] 거절 (검토 폐기)."
+                    })
+                    st.rerun()
+
+        # ============================================================
+        # [화면 B] 수정 사유 입력 화면 (버튼 누른 후)
+        # ============================================================
+        else:
+            st.markdown("### 📝 수정 요청 사항 입력")
+            st.caption("구체적으로 적어주실수록 더 정확한 개선안이 나옵니다.")
+            
+            # 반복 횟수 제한 체크
+            if current_iteration >= MAX_ITERATIONS:
+                st.warning(f"⚠️ 반복 횟수 제한({MAX_ITERATIONS}회)에 도달하여 더 이상 수정할 수 없습니다.")
+                if st.button("돌아가기", use_container_width=True):
+                    st.session_state.show_modify_input = False
+                    st.rerun()
             else:
-                if st.button("수정 요청 제출 (Modify)", key="modify_btn", use_container_width=True):
-                    if not modify_reason.strip():
-                        st.error("수정 요청 사유를 반드시 입력해야 합니다.")
-                    else:
-                        st.session_state.pending_feedback = {
-                            "user_feedback": "modify",
-                            "modify_reason": modify_reason.strip(),
-                            "retry_action": ""
-                        }
-                        st.session_state.hitl_pending = False
-                        st.session_state.messages.append({
-                            "role": "user", 
-                            "content": f"[피드백] 수정 요청:\n{modify_reason.strip()}"
-                        })
+                modify_reason = st.text_area(
+                    "수정 요청 사유:", 
+                    key="modify_reason_input",
+                    height=150,
+                    placeholder="예) 위약금 비율을 조금 더 낮춰주세요.\n예) 해지 사유를 더 구체적으로 명시해주세요."
+                )
+
+                b_col1, b_col2 = st.columns([1, 1])
+                
+                with b_col1:
+                    if st.button("취소 (이전으로)", use_container_width=True):
+                        st.session_state.show_modify_input = False
                         st.rerun()
-
-        with col2:
-            st.subheader("수락 또는 거절 (Approve / Reject)")
-            if st.button("개선안 수락 (Approve)", key="approve_btn", use_container_width=True):
-                st.session_state.pending_feedback = {
-                    "user_feedback": "approved",
-                    "modify_reason": "",
-                    "retry_action": ""
-                }
-                st.session_state.hitl_pending = False
-                st.session_state.messages.append({
-                    "role": "user", 
-                    "content": "[피드백] 개선안을 수락합니다 (완료)."
-                })
-                st.rerun()
-
-            if st.button("다른 개선안 생성 (Reject + Retry)", key="retry_btn", use_container_width=True):
-                st.session_state.pending_feedback = {
-                    "user_feedback": "rejected",
-                    "retry_action": "retry",
-                    "modify_reason": ""
-                }
-                st.session_state.hitl_pending = False
-                st.session_state.messages.append({
-                    "role": "user", 
-                    "content": "[피드백] 거절 (다른 개선안 재시도)."
-                })
-                st.rerun()
-
-            if st.button("폐기 (Reject + Discard)", key="discard_btn", use_container_width=True):
-                st.session_state.pending_feedback = {
-                    "user_feedback": "rejected",
-                    "retry_action": "discard",
-                    "modify_reason": ""
-                }
-                st.session_state.hitl_pending = False
-                st.session_state.messages.append({
-                    "role": "user", 
-                    "content": "[피드백] 거절 (검토 폐기)."
-                })
-                st.rerun()
-        
+                        
+                with b_col2:
+                    if st.button("제출하기", type="primary", use_container_width=True):
+                        if not modify_reason.strip():
+                            st.error("수정 요청 사유를 입력해주세요.")
+                        else:
+                            # 제출 로직
+                            st.session_state.pending_feedback = {
+                                "user_feedback": "modify",
+                                "modify_reason": modify_reason.strip(),
+                                "retry_action": ""
+                            }
+                            st.session_state.hitl_pending = False
+                            st.session_state.show_modify_input = False # 상태 초기화
+                            
+                            st.session_state.messages.append({
+                                "role": "user", 
+                                "content": f"[피드백] 수정 요청:\n{modify_reason.strip()}"
+                            })
+                            st.rerun()
+                            
         st.chat_input("피드백을 먼저 완료해주세요.", disabled=True)
 
     # 4. 피드백 대기 상태가 아닌 경우, 채팅 입력창 활성화
@@ -273,7 +290,7 @@ def run_chatbot_mode(app, current_threshold_value):
 def main_chatbot_ui():
     st.set_page_config(page_title="약관 검토 챗봇", layout="wide")
     st.title("약관 검토 챗봇")
-    st.caption("본 분석은 법적 효력을 가지지 않으며, 법률 자문을 대체하지 않습니다. 중대한 법적 판단은 반드시 자격 있는 법률 전문가와의 상담을 통해 이루어져야 합니다.")
+    st.caption("본 서비스는 법무팀의 신규 약관 작성을 지원하는 내부용 도구입니다. AI 분석은 법적 해석을 대체하지 않으며, 최종 검토·판단 책임은 법무팀 담당자에게 있습니다.")
     
     with st.sidebar:
         st.header("검색 설정")
