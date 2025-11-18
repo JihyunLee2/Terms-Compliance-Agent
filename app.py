@@ -1,7 +1,8 @@
 import streamlit as st
 import traceback
 from datetime import datetime
-from langchain_core.tracers.context import tracing_v2_enabled
+# from langchain_core.tracers.context import tracing_v2_enabled
+# 랭채인 트래킹 설정 끄기 -> .env 파일에서 LANGCHAIN_TRACING_V2=false
 
 # 모듈화된 설정, 그래프, PDF 모듈 로드
 from config2 import SIMILARITY_THRESHOLD, MAX_ITERATIONS, SHOW_RETRIEVED_CASES
@@ -211,8 +212,8 @@ def run_chatbot_mode(app, current_threshold_value):
                             "similarity_threshold": current_threshold_value
                         }
                         
-                        with tracing_v2_enabled():
-                            output = app.invoke(initial_state, config=config)
+                        # with tracing_v2_enabled():
+                        output = app.invoke(initial_state, config=config)
                         
                         st.session_state.current_state = output
                         
