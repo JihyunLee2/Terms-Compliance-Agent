@@ -1,6 +1,10 @@
 import streamlit as st
 import traceback
 from datetime import datetime
+import graphviz
+import yaml
+import streamlit_authenticator as stauth
+from yaml.loader import SafeLoader
 # from langchain_core.tracers.context import tracing_v2_enabled
 # 랭채인 트래킹 설정 끄기 -> .env 파일에서 LANGCHAIN_TRACING_V2=false
 
@@ -29,6 +33,7 @@ def run_chatbot_mode(app, current_threshold_value):
         [입력 예시]
         회원이 본 카드의 발급 목적과 다르게 이용한다고 카드사가 판단하거나, 
         기타 이에 준하는 중대한 사유가 발생하여 계약 유지가 곤란하다고 인정되는 경우, 카드사는 본 계약을 해지할 수 있습니다.
+<- 더 궁금한 점이 있으시다면, 왼쪽 사이드바의 `도움말`을 확인하세요.
         """
         })
 
@@ -288,23 +293,154 @@ def run_chatbot_mode(app, current_threshold_value):
                         st.session_state.thread_id = None
                         st.session_state.hitl_pending = False
 
+def draw_user_guide():
+    st.title("약관 검토 챗봇 가이드")
+    st.markdown("법무팀의 약관 제정 및 검토 업무를 보조하는 시스템 사용법입니다.")
+    
+    st.divider()
+    
+    st.subheader("📌 업무 프로세스 (Workflow)")
+    # Graphviz로 흐름도 그리기
+    graph = graphviz.Digraph()
+    graph.attr(rankdir='LR', size='10,3') 
+    graph.attr('node', shape='box', style='filled', fillcolor='#e8f4f8', fontname='Malgun Gothic')
+    
+    graph.node('1', '1. 조항/파일 입력')
+    graph.node('2', '2. AI 법률 분석\n(공정성/유사사례)')
+    graph.node('3', '3. 개선안 생성')
+    graph.node('4', '4. 수정 및 확정\n(Human Check)')
+    
+    graph.edge('1', '2')
+    graph.edge('2', '3')
+    graph.edge('3', '4', label=' 피드백')
+    
+    st.graphviz_chart(graph)
+    
+    st.write("")
+    
+    st.info("""
+    **💡 팁 (Tip)**
+    * **수정 요청:** AI 제안이 마음에 안 들면 "좀 더 부드럽게 써줘"라고 채팅하듯 요청하세요.
+    * **임계값 조절:** 왼쪽 사이드바의 '유사도'를 낮추면 더 많은 참고 사례가 나옵니다.
+    """)
+
+def draw_analysis_scope():
+    st.title("데이터 구조 / 판단 기준 보기")
+    st.markdown("본 시스템은 **개별 조항의 법적 유효성 및 공정성 심사**에 최적화되어 있습니다.")
+    
+    st.divider()
+    
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.success("✅ 문장/표현 단위")
+        st.markdown("""
+        **[지원함]**
+        - 모호한 표현 감지
+        - 독소 조항 문구 식별
+        - 오타 및 비문 교정
+        """)
+        st.caption("문장 내의 논리적 오류나 불명확한 표현을 찾아냅니다.")
+        
+    with col2:
+        st.success("✅ 조항(Clause) 단위")
+        st.markdown("""
+        **[핵심 기능]**
+        - **불공정 유형(8대) 판별**
+        - 관련 법령 매칭
+        - 유사 시정 사례 검색
+        """)
+        st.caption("제N조 단위의 공정성 여부를 가장 정확하게 분석합니다.")
+        
+    with col3:
+        st.warning("⚠️ 전체 구조(Context)")
+        st.markdown("""
+        **[제한적 지원]**
+        - 조항 간 충돌 여부 (X)
+        - 문서 전체의 통일성 (△)
+        - 누락된 필수 조항 체크 (△)
+        """)
+        st.caption("PDF 검토 시에도 '조항 단위'로 쪼개서 분석하며, 조항끼리의 유기적 연결성은 완벽히 파악하지 못할 수 있습니다.")
+
+    st.divider()
+    
+    st.subheader("ℹ️ 상세 지원 내역")
+    st.markdown("""
+    | 구분 | 기능 | 지원 여부 | 비고 |
+    | :--- | :--- | :---: | :--- |
+    | **단일 조항** | 불공정성 심사 | ✅ | 가장 높은 정확도 |
+    | **단일 조항** | 법령/판례 근거 | ✅ | RAG 기술 활용 |
+    | **단일 조항** | 수정안 제안 | ✅ | Generate Model 활용 |
+    | **전체 문서** | 일괄 검토 (Batch) | ✅ | PDF 업로드 시 조항별 순차 분석 |
+    | **전체 문서** | 상호 모순 체크 | ❌ | 예: 제3조와 제15조의 충돌 여부 미지원 |
+    | **전체 문서** | 양식/포맷팅 | ❌ | 들여쓰기, 글자 크기 등은 분석 제외 |
+    """)
+
 def main_chatbot_ui():
     st.set_page_config(page_title="약관 검토 챗봇", layout="wide")
-    st.title("약관 검토 챗봇")
-    st.caption("본 서비스는 법무팀의 신규 약관 작성을 지원하는 내부용 도구입니다. AI 분석은 법적 해석을 대체하지 않으며, 최종 검토·판단 책임은 법무팀 담당자에게 있습니다.")
     
+    # --- [1] 상태 초기화 ---
+    if "show_guide" not in st.session_state:
+        st.session_state.show_guide = False
+    if "show_scope" not in st.session_state:
+        st.session_state.show_scope = False
+
+    # 현재 '도움말 모드'인지 확인 (가이드나 범위 화면 중 하나라도 켜져 있으면 True)
+    is_help_mode = st.session_state.show_guide or st.session_state.show_scope
+    
+    # ---------------------------------------------------------
+    # [사이드바 영역]
+    # ---------------------------------------------------------
     with st.sidebar:
-        st.header("검색 설정")
+       # 1. 검색 설정 (가이드나 범위 화면이 아닐 때만 활성화)
+        disabled_status = st.session_state.show_guide or st.session_state.show_scope
+        
+        st.subheader("검색 옵션")
         similarity_threshold_percent = st.slider(
             "유사도 임계값 (%)",
             min_value=0,
             max_value=100,
-            value=int(SIMILARITY_THRESHOLD * 100), # config 기본값 사용
+            value=int(SIMILARITY_THRESHOLD * 100),
             step=5,
-            format="%d%%"
+            format="%d%%",
+            disabled=is_help_mode
         )
         current_threshold_value = similarity_threshold_percent / 100.0
-        st.caption(f"현재 설정: {similarity_threshold_percent}% 이상")
+        
+        if not is_help_mode:
+            st.caption(f"현재 설정: {similarity_threshold_percent}% 이상 유사 사례 검색")
+        
+        st.divider()
+            
+        st.header("도움말")
+        
+        # 2. 화면 전환 버튼 로직 (가이드 보기 / 분석 범위 / 돌아가기)
+        # 2-1. 가이드 버튼 (보고 있으면 '닫기', 안 보고 있으면 '열기')
+        if st.session_state.show_guide:
+            # 현재 가이드를 보고 있는 상태 -> '돌아가기' 버튼으로 표시
+            if st.button("**⬅️ 돌아가기**", use_container_width=True):
+                st.session_state.show_guide = False
+                st.rerun()
+        else:
+            # 가이드를 안 보고 있는 상태 -> '가이드 보기' 버튼으로 표시
+            if st.button("사용 가이드 보기", use_container_width=True):
+                st.session_state.show_guide = True
+                st.session_state.show_scope = False # 다른 창은 닫음
+                st.rerun()
+
+        # 2-2. 분석 범위 버튼 (보고 있으면 '닫기', 안 보고 있으면 '열기')
+        if st.session_state.show_scope:
+            # 현재 분석 범위를 보고 있는 상태 -> '돌아가기' 버튼으로 표시
+            if st.button("**⬅️ 돌아가기**", use_container_width=True, key="btn_close_scope"):
+                st.session_state.show_scope = False
+                st.rerun()
+        else:
+            # 분석 범위를 안 보고 있는 상태 -> '범위 보기' 버튼으로 표시
+            if st.button("데이터 구조 / 판단 기준 보기", use_container_width=True):
+                st.session_state.show_scope = True
+                st.session_state.show_guide = False # 다른 창은 닫음
+                st.rerun()
+        
         st.divider()
         st.subheader("정보")
         st.markdown(
@@ -315,38 +451,54 @@ def main_chatbot_ui():
             * **성능 범위:** 불공정 여부 판단, 유사 사례/법령 검색, 개선안 생성
             """
         )
-    
-    # 모듈화된 load_app_safe 호출
-    app, vectorstore = load_app_safe()
-    if not app or not vectorstore:
-        st.error("애플리케이션을 초기화하지 못했습니다. 설정을 확인하세요.")
-        return
+        st.caption("© 2025 법무지원팀 AI Assistant")
 
-    # --- 1. (수정) st.tabs 대신 st.radio로 탭 상태 관리 ---
-    # st.radio는 'key'를 지원하므로 페이지 Rerun 시에도 상태가 유지됩니다.
-    if "active_tab" not in st.session_state:
-        st.session_state.active_tab = "💬 챗봇 (단일 조항 검토)" # 기본값 설정
-
-    tab_options = ["💬 챗봇 (단일 조항 검토)", "📄 PDF (전체 문서 검토)"]
+    # ---------------------------------------------------------
+    # [메인 화면 영역]
+    # ---------------------------------------------------------
     
-    # horizontal=True와 label_visibility="collapsed"로 탭처럼 보이게 함
-    active_tab = st.radio(
-        "모드 선택",
-        tab_options,
-        key="active_tab", # session_state와 연결
-        horizontal=True,
-        label_visibility="collapsed" # '모드 선택' 레이블 숨기기
-    )
+    # [A] 가이드 보기 모드일 때 -> 가이드 함수 호출
+    if st.session_state.show_guide:
+        draw_user_guide()
     
-    st.divider() # 탭과 내용 구분
+    # [B] 분석 범위 보기 모드
+    elif st.session_state.show_scope:
+        draw_analysis_scope()
+    
+    # [C] 검토 모드일 때 -> 기존 탭(Radio) 화면 표시
+    else:
+        st.title("약관 검토 챗봇")
+        st.caption("본 서비스는 법무팀의 신규 약관 작성을 지원하는 내부용 도구입니다. AI 분석은 법적 해석을 대체하지 않으며, 최종 검토·판단 책임은 법무팀 담당자에게 있습니다.")
 
-    # --- 2. (수정) 'with tab1/tab2:' 대신 if/elif 구문 사용 ---   
-    if active_tab == "💬 챗봇 (단일 조항 검토)":
-        run_chatbot_mode(app, current_threshold_value)
         
-    elif active_tab == "📄 PDF (전체 문서 검토)":
-        # 모듈화된 pdf_module 호출
-        run_pdf_batch_mode(app, vectorstore, current_threshold_value)
+        # 앱 로드
+        app, vectorstore = load_app_safe()
+        if not app or not vectorstore:
+            st.error("앱 초기화 실패")
+            return
+
+        # --- 기존의 Radio 탭 유지 ---
+        tab_options = ["💬 챗봇 (단일 조항 검토)", "📄 PDF (전체 문서 검토)"]
+        
+        # 탭 상태 유지
+        if "active_tab" not in st.session_state:
+            st.session_state.active_tab = tab_options[0]
+
+        active_tab = st.radio(
+            "모드 선택",
+            tab_options,
+            key="active_tab", # session_state와 자동 연동
+            horizontal=True,
+            label_visibility="collapsed"
+        )
+        
+        st.divider()
+
+        if active_tab == "💬 챗봇 (단일 조항 검토)":
+            run_chatbot_mode(app, current_threshold_value)
+            
+        elif active_tab == "📄 PDF (전체 문서 검토)":
+            run_pdf_batch_mode(app, vectorstore, current_threshold_value)
         
 
 if __name__ == "__main__":
