@@ -16,3 +16,6 @@ pypdf
 
 # Config
 python-dotenv
+
+# Graph
+graphviz
