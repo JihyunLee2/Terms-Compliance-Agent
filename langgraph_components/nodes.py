@@ -22,6 +22,23 @@ from utils import (
     LAW_FILENAME_MAP      
 )
 
+# law_priority 메타데이터 수동 정의 ==============================================================
+def assign_law_priority(file_path: str) -> int:
+    if "약관법" in file_path:
+        return 1
+    elif "전자금융거래법" in file_path:
+        return 2
+    elif "금융소비자보호" in file_path and "시행령" not in file_path and "감독규정" not in file_path:
+        return 3
+    elif "시행령" in file_path:
+        return 4
+    elif "감독규정" in file_path:
+        return 5
+    elif "심사지침" in file_path:
+        return 6
+    return 99  # 기타
+# law_priority 메타데이터 수동 정의 ==============================================================
+
 # --- 그래프 노드 ---
 
 def clean_text_node(state: ContractState):
