@@ -42,7 +42,6 @@ def assign_law_priority(file_path: str) -> int:
     return 99  # 기타
 # law_priority 메타데이터 수동 정의 ==============================================================
 
-
 # ------------------------------------
 
 def build_vectordb():
