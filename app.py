@@ -8,6 +8,9 @@ from yaml.loader import SafeLoader
 # from langchain_core.tracers.context import tracing_v2_enabled
 # 랭채인 트래킹 설정 끄기 -> .env 파일에서 LANGCHAIN_TRACING_V2=false
 
+# 인증 관리자
+import auth_manager 
+
 # 모듈화된 설정, 그래프, PDF 모듈 로드
 from config2 import SIMILARITY_THRESHOLD, MAX_ITERATIONS, SHOW_RETRIEVED_CASES
 from langgraph_components import load_app_safe
@@ -441,14 +444,13 @@ def main_chatbot_ui():
                 st.session_state.show_guide = False # 다른 창은 닫음
                 st.rerun()
         
-        st.divider()
+        st.write("")
         st.subheader("정보")
         st.markdown(
             """
             * **모델:** Solar-Pro2
             * **버전:** 약관 분석 모듈 v1.0
             * **최근 업데이트:** 2025.11
-            * **성능 범위:** 불공정 여부 판단, 유사 사례/법령 검색, 개선안 생성
             """
         )
         st.caption("© 2025 법무지원팀 AI Assistant")
@@ -501,5 +503,14 @@ def main_chatbot_ui():
             run_pdf_batch_mode(app, vectorstore, current_threshold_value)
         
 
+def main():
+    # 1. 인증 관리자로부터 객체 가져오기
+    authenticator = auth_manager.get_authenticator()
+
+    # 2. 로그인 상태 확인 및 처리 (이 함수가 로그인 창 표시부터 검증까지 다 함)
+    if auth_manager.check_login_status(authenticator):
+        # 3. 로그인 성공 시 메인 UI 실행
+        main_chatbot_ui()
+
 if __name__ == "__main__":
-    main_chatbot_ui()
+    main()
