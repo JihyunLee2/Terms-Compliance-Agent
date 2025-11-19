@@ -22,6 +22,25 @@ from utils import (
     LAW_FILENAME_MAP      
 )
 
+
+# law_priority 메타데이터 수동 정의 ==============================================================
+def assign_law_priority(file_path: str) -> int:
+    if "약관법" in file_path:
+        return 1
+    elif "전자금융거래법" in file_path:
+        return 2
+    elif "금융소비자보호" in file_path and "시행령" not in file_path and "감독규정" not in file_path:
+        return 3
+    elif "시행령" in file_path:
+        return 4
+    elif "감독규정" in file_path:
+        return 5
+    elif "심사지침" in file_path:
+        return 6
+    return 99  # 기타
+# law_priority 메타데이터 수동 정의 ==============================================================
+
+
 # --- 그래프 노드 ---
 
 def clean_text_node(state: ContractState):
@@ -202,16 +221,42 @@ def retrieve_node(state: ContractState, vectorstore: Chroma):
         k=SEARCH_TOP_K_LAWS, 
         filter={"source_type": "law"}
     )
-    final_laws_meta = []
+    
+    # 추가 벡터DB내 법률 우선순위 (숫자가 작을수록 높은 우선)===========================
+    # --- [법령 검색 결과 필터링 + 우선순위 정렬 추가] ---
+    law_results_filtered = []
     for i, (doc, similarity_score) in enumerate(results_laws_with_scores, 1):
-        if similarity_score >= current_threshold:
-            final_laws_meta.append({
+        if similarity_score >= adjusted_threshold:
+            law_results_filtered.append({
                 "index": i,
                 "similarity": similarity_score,
+                "law_priority": doc.metadata.get("law_priority", 99),
                 "content": doc.page_content,
                 "metadata": doc.metadata
             })
-    final_laws_meta = final_laws_meta[:MAX_DISPLAY_LAWS]
+
+    # --- 우선순위(law_priority) 기준 정렬 후 상위 N개 추출 ---
+    final_laws_meta = sorted(
+        law_results_filtered,
+        key=lambda x: (x["law_priority"], -x["similarity"])
+    )[:MAX_DISPLAY_LAWS]
+    # 추가 벡터DB내 법률 우선순위 (숫자가 작을수록 높은 우선)===========================
+
+    # 수정 =====================================================================
+
+    # final_laws_meta = []
+    # for i, (doc, similarity_score) in enumerate(results_laws_with_scores, 1):
+    #     if similarity_score >= adjusted_threshold:
+    #         final_laws_meta.append({
+    #             "index": i,
+    #             "similarity": similarity_score,
+    #             "content": doc.page_content,
+    #             "metadata": doc.metadata
+    #         })
+    # final_laws_meta = final_laws_meta[:MAX_DISPLAY_LAWS]
+
+    # 수정 =====================================================================
+    
     
     # 3. LLM 프롬프트용 텍스트 생성
     # 3a. LLM에 전달할 '가장 최신 사례' 1건 찾기
