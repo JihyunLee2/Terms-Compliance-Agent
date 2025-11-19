@@ -23,6 +23,26 @@ load_dotenv()
 # 부모 폴더(루트)를 기준으로 'data' 폴더 경로를 설정합니다.
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(BASE_DIR, 'data')
+
+
+# law_priority 메타데이터 수동 정의 ==============================================================
+def assign_law_priority(file_path: str) -> int:
+    if "약관법" in file_path:
+        return 1
+    elif "전자금융거래법" in file_path:
+        return 2
+    elif "금융소비자보호" in file_path and "시행령" not in file_path and "감독규정" not in file_path:
+        return 3
+    elif "시행령" in file_path:
+        return 4
+    elif "감독규정" in file_path:
+        return 5
+    elif "심사지침" in file_path:
+        return 6
+    return 99  # 기타
+# law_priority 메타데이터 수동 정의 ==============================================================
+
+
 # ------------------------------------
 
 def build_vectordb():
