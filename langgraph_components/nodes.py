@@ -36,8 +36,7 @@ def clean_text_node(state: ContractState):
     
     print(f"-> 검증 통과\n")
     cleaned = clean_clause_text(state['clause'])
-    
-    # print(f"[정제 전] {len(original_text)}자\n[정제 후] {len(cleaned)}자\n{cleaned}\n")
+
     print(f"[정제 전] {len(state['clause'])}자\n[정제 후] {len(cleaned)}자\n{cleaned}\n")
     return {
         "cleaned_text": cleaned, 
@@ -46,69 +45,80 @@ def clean_text_node(state: ContractState):
     }
 
 def fairness_classify_node(state: ContractState):
-    """[노드 2] 공정/불공정 분류 (반복 및 다수결 투표 포함)"""
-    if not state.get('cleaned_text', '').strip():
+    """[노드 2] 공정/불공정 분류 (내부 반복 및 Fast Path 적용)"""
+    cleaned_text = state.get('cleaned_text', '').strip()
+    if not cleaned_text:
         print("[노드2] 검사 대상 약관 텍스트가 없습니다. 분류 건너뜀")
         return {}
-    
-    # app.py의 fairness_retry_count 
-    iteration = state.get('fairness_retry_count', 0) + 1 
-    print(f"\n[노드2] 공정/불공정 분류 (반복 {iteration}차)\n")
-    
-    results_history = state.get('results_history', [])
 
-    prompt = ACTIVE_FAIRNESS_CLASSIFY_PROMPT.format(cleaned_text=state['cleaned_text'])
-    response = llm.invoke(prompt).content.strip()
-    lines = response.split("\n")
-    classification = lines[0].strip()
-    confidence = float(lines[1].strip())
+    print(f"\n[노드2] 공정/불공정 분류 시작 (최대 {FAIRNESS_MAX_ITERATIONS}회, 임계값 {CONFIDENCE_THRESHOLD})\n")
+    
+    results_history = []
+    
+    # [반복 로직] 노드 내부에서 최대 횟수만큼 시도
+    for iteration in range(1, FAIRNESS_MAX_ITERATIONS + 1):
+        prompt = ACTIVE_FAIRNESS_CLASSIFY_PROMPT.format(cleaned_text=cleaned_text)
         
-    print(f"[노드2] 분류 결과: {classification}, 확신도: {confidence}, 반복: {iteration}")
+        try:
+            response = llm.invoke(prompt).content.strip()
+            
+            # --- 파싱 로직 ---
+            lines = response.split("\n")
+            classification_text = lines[0].strip()
+            # 신뢰도가 없거나 파싱 실패 시 0.0 처리
+            confidence = float(lines[1].strip()) if len(lines) > 1 else 0.0
+            
+            # 라벨 정규화 ('공정'/'불공정' 키워드 포함 여부 확인)
+            label = 'N/A'
+            if '공정' in classification_text and '불공정' not in classification_text:
+                label = '공정'
+            elif '불공정' in classification_text:
+                label = '불공정'
+                
+            if label == 'N/A':
+                print(f"  [경고] {iteration}차 시도: 식별 불가 ({classification_text})")
+                continue
 
-    # 반복 중 결과 추가
-    results_history.append((classification, confidence))
-    if len(results_history) > MAX_ITERATIONS:
-        # 오래된 결과 삭제 (FIFO)
-        results_history.pop(0)
-    
-    print(f"[DEBUG] 분류 결과: {classification}, 확신도: {confidence}, 누적 결과 수: {len(results_history)}")
-    
-    
-    # 반복 조건: 최대 반복 횟수 미만 & 신뢰도 임계값 미만
-    if iteration < FAIRNESS_MAX_ITERATIONS and confidence < CONFIDENCE_THRESHOLD:
-        print(f"[반복 계속] iteration: {iteration}, 결과: {results_history}")
-        # 라우터가 이전 상태를 참조하지 않도록 '진행 중' 상태 반환
-        return {
-            "fairness_retry_count": iteration,
-            "results_history": results_history,
-            "fairness_label": "", # app.py 호환성을 위해 fairness_label 사용
-            "fairness_confidence": 0.0
-        }
+            # 결과 기록
+            results_history.append((label, confidence))
+            print(f"  [{iteration}차] 결과: {label}, 신뢰도: {confidence:.2f}")
+
+            # --- 1. Fast Path (즉시 확정) ---
+            # 임계값 이상이면 루프 즉시 중단하고 결과 반환
+            if confidence >= CONFIDENCE_THRESHOLD:
+                print(f"  [Fast Path] {iteration}차에서 기준 충족. 즉시 종료.")
+                return {
+                    "fairness_label": label,
+                    "fairness_confidence": confidence,
+                    "fairness_retry_count": iteration,
+                    "results_history": results_history
+                }
+
+        except Exception as e:
+            print(f"  [오류] {iteration}차 시도 중 예외: {e}")
+            results_history.append(('error', 0.0))
+
+    # --- 2. Fallback (반복 종료 후 결정) ---
+    # 모든 시도가 임계값 미만이거나 실패한 경우
+    print(f"  [Fallback] {FAIRNESS_MAX_ITERATIONS}회 모두 임계값 미달. 최고 신뢰도 결과 선택.")
+
+    valid_results = [(l, c) for l, c in results_history if l not in ['N/A', 'error'] and c > 0]
+
+    if not valid_results:
+        final_label = "분류 실패"
+        final_conf = 0.0
     else:
-        # 반복 종료: 다수결 또는 최고 신뢰도로 최종 결정
-        print(f"[반복 종료] iteration: {iteration}, 결과: {results_history}")
-        
-        classifications = [r[0] for r in results_history]
-        most_common = Counter(classifications).most_common()
-        max_count = most_common[0][1]
-        candidates = [c for c, count in most_common if count == max_count]
+        # 신뢰도가 가장 높은 결과 선택 (제공된 코드 로직 반영)
+        final_label, final_conf = max(valid_results, key=lambda x: x[1])
 
-        if len(candidates) == 1:
-            final_classification = candidates[0]
-        else:
-            sums = {c: sum(conf for cl, conf in results_history if cl == c) for c in candidates}
-            final_classification = max(sums.items(), key=lambda x: x[1])[0]
+    print(f"[최종 판단] 분류: {final_label}, 확신도: {final_conf:.2f}")
 
-        confidences = [conf for cl, conf in results_history if cl == final_classification]
-        avg_confidence = sum(confidences) / len(confidences) if confidences else 0.0
-
-        print(f"[최종 판단] 공정성 분류: {final_classification}, 평균 확신도: {avg_confidence}")
-        return {
-            "fairness_label": final_classification, # app.py 호환성을 위해 fairness_label 사용
-            "fairness_confidence": avg_confidence,
-            "fairness_retry_count": iteration,
-            "results_history": results_history,
-        }
+    return {
+        "fairness_label": final_label,
+        "fairness_confidence": final_conf,
+        "fairness_retry_count": FAIRNESS_MAX_ITERATIONS,
+        "results_history": results_history
+    }
 
 def classify_type_node(state: ContractState, max_retry=3):
     """[노드 3] 불공정 유형 분류"""
