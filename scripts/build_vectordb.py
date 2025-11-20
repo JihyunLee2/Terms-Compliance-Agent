@@ -60,48 +60,38 @@ def build_vectordb():
     
     for pdf_file in pdf_files:
         file_path = os.path.join(DATA_DIR, pdf_file)
-        # if not os.path.exists(pdf_file):
-        if not os.path.exists(file_path): # (수정)
+        if not os.path.exists(file_path):
             print(f"경고: {pdf_file}을(를) 찾을 수 없습니다")
             continue
         
         print(f"처리 중: {pdf_file}")
-        # loader = PyPDFLoader(pdf_file)
-        loader = PyPDFLoader(file_path)  # (수정)
-        docs = loader.load()
+        loader = PyPDFLoader(file_path)
+        pages = loader.load() # 페이지 단위 로드
         
-        # splitter = RecursiveCharacterTextSplitter(
-        #     chunk_size=250,
-        #     chunk_overlap=50
-        # )
-        splitter = RecursiveCharacterTextSplitter(
-            # '제N조' 단위로 잘라도 1000자를 넘는 긴 조항을 대비한 2차 안전망
-            chunk_size=1000, 
-            chunk_overlap=150,
+        # --- 페이지 병합 (Merge) ---
+        full_text = ""
+        for page in pages:
+            # 1. 페이지별 헤더/푸터 노이즈 제거
+            cleaned_content = utils.clean_page_content(page.page_content)
+            # 2. 전체 텍스트로 합치기 (줄바꿈 추가)
+            full_text += f"\n{cleaned_content}"
             
-            # 분리 기준(separators)을 법률 구조에 맞게 지정
-            # "제N조", "①" 같은 패턴을 우선 분리 기준으로 삼음
-            separators=[
-                "\n\n제",  # "제N조" (가장 큰 단위)
-                "\n\n",   # 문단
-                "\n",     # 줄바꿈
-                " ",
-                ""
-            ]
-        )
+        # --- [핵심 변경 사항] 조항 단위 분할 (Split) ---
+        chunks = utils.split_text_into_clauses(full_text)
         
-        chunks = splitter.split_documents(docs)
-        
-        for chunk in chunks:
-            cleaned_content = utils.clean_page_content(chunk.page_content)
-            if len(cleaned_content) < 30:
-                continue
-            
-            chunk.page_content = cleaned_content
-            chunk.metadata['source_type'] = 'law'
-            chunk.metadata['source_file'] = pdf_file
-            documents.append(chunk)
+        # 분할된 텍스트를 Document 객체로 변환
+        for chunk_text in chunks:
+            # 메타데이터 생성 (어떤 법령인지)
+            metadata = {
+                'source_type': 'law',
+                'source_file': pdf_file,
+                'law_priority': assign_law_priority(pdf_file) # 우선순위 함수를 호출하여 메타데이터에 저장
+            }
     
+            # Document 객체 생성
+            doc = Document(page_content=chunk_text, metadata=metadata)
+            documents.append(doc)
+            
     print(f"법령 처리 완료: {len(documents)}개 청크\n")
     
     print("불공정 사례 처리 중...")

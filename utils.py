@@ -107,45 +107,66 @@ def extract_text_from_pdf(uploaded_file):
         return ""    
 
 def split_text_into_clauses(full_text: str) -> List[str]:
-    """긴 텍스트를 의미 있는 조항(Chunk) 단위로 분할합니다. (pdf_module.py에서 이동) """
-    # 법률 문서에 적합한 구분자 설정
-    # 예: "제 1 조", "1.", "가.", "①" 등
-    # RecursiveCharacterTextSplitter는 \n\n을 우선으로 자릅니다.
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=1000,  # 조항 하나의 최대 길이 (조절 필요)
-        chunk_overlap=100, # 조항간 겹침
-        separators=[
-            "\n\n", "\n", ". ", " "
-        ],
-        length_function=len,
-    )    
-    chunks = text_splitter.split_text(full_text)
+    """
+    전체 텍스트를 '제N조' 단위로 분할 (Regex 활용)
+    """
+    # 1. 제N조 패턴으로 분할 (Lookahead assertion (?=...) 사용으로 '제N조' 텍스트 보존)
+    # 패턴 설명: 줄바꿈(\n) 뒤에 공백(\s*)이 있을 수도 있고 '제' + 숫자 + '조'가 나오는 구간
+    article_pattern = re.compile(r'(?=\n\s*제\s*\d+\s*조)')
     
-    # utils.py에 함께 있는 is_valid_contract_clause 함수를 직접 호출
-    # 너무 짧은 청크(예: 목차, 페이지 번호) 필터링
-    # 기존 'is_valid_contract_clause'의 최소 길이 검사(20자) 활용
-    valid_chunks = [
-        chunk for chunk in chunks 
-        if is_valid_contract_clause(chunk)[0] # 기존 룰베이스 검증 재활용
-    ]
+    # 전체 텍스트에서 맨 앞의 불필요한 공백 제거
+    full_text = full_text.strip()
     
+    # 분할 실행
+    chunks = article_pattern.split(full_text)
+    
+    valid_chunks = []
+    for chunk in chunks:
+        chunk = chunk.strip()
+        if not chunk: continue
+        
+        # 2. 너무 긴 조항(1000자 이상)은 2차 분할 (RecursiveCharacterTextSplitter)
+        if len(chunk) > 1000:
+            sub_splitter = RecursiveCharacterTextSplitter(
+                chunk_size=1000,
+                chunk_overlap=100,
+                separators=["\n\n", "\n", " ", ""]
+            )
+            valid_chunks.extend(sub_splitter.split_text(chunk))
+        else:
+            # 3. 너무 짧은 쓰레기 텍스트(20자 미만) 버리기
+            if len(chunk) >= 20:
+                valid_chunks.append(chunk)
+                
     return valid_chunks
 
 def clean_page_content(text: str) -> str:
-    """build_vectordb.py에서 이동"""
+    """
+    PDF 페이지별 노이즈(헤더, 푸터, 페이지 번호) 제거
+    """
+    # 1. 줄 단위로 분리
     lines = text.split('\n')
     cleaned_lines = []
+    
     for line in lines:
-        if any(pattern in line for pattern in [
-            '법제처', '국가법령정보센터', '제1장', '제2장',
-            '전문개정', '[시행', '[법률'
-        ]):
+        line = line.strip()
+        if not line: continue # 빈 줄 제거
+        
+        # 2. 법령 PDF 특유의 노이즈 패턴 제거 (법제처, 날짜, 페이지 번호 등)
+        # 예: "법제처", "국가법령정보센터", "1", "2024. 2. 6." 등 숫자만 있는 줄
+        if any(keyword in line for keyword in [
+            '법제처', '국가법령정보센터', '제1장', '제2장'
+            , '[시행', '[법률', '전문개정', '타법개정', '일부개정'
+            ]):
             continue
-        if line.strip().isdigit():
+            
+        # 3. 숫자만 있거나(페이지번호), 특수문자로 감싸진 페이지 번호 제거 (- 1 -)
+        if re.match(r'^[\-\s]*\d+[\-\s]*$', line):
             continue
-        if line.strip():
-            cleaned_lines.append(line)
-    return '\n'.join(cleaned_lines).strip()
+            
+        cleaned_lines.append(line)
+        
+    return '\n'.join(cleaned_lines)
 
 def parse_date_safe(date_val):
     """YYYY-MM-DD 형식 날짜를 안전하게 파싱  build_vectordb.py에서 이동"""

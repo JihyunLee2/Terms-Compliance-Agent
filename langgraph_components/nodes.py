@@ -163,26 +163,25 @@ def classify_type_node(state: ContractState, max_retry=3):
     return {"unfair_type": "분류 실패"}
 
 def retrieve_node(state: ContractState, vectorstore: Chroma):
-    """[노드 4] RAG - 유사 사례 및 법령 검색"""
-    current_threshold = state.get('similarity_threshold', SIMILARITY_THRESHOLD)  #
-    fairness_label = state.get('fairness_label', '') # '공정'/'불공정' 라벨 확인    #
-    print(f"[노드4] 검색 (임계값: {current_threshold:.0%}), fairness_label:{fairness_label}") # 
+    """[노드 4] RAG - 유사 사례 및 법령 검색 (Re-ranking 적용 완료)"""
+    current_threshold = state.get('similarity_threshold', SIMILARITY_THRESHOLD)
+    fairness_label = state.get('fairness_label', '') 
     
-    # --- 쿼리 분기 ---
+    # ------------------------------------------------------------------
+    # 1. 검색 쿼리 설정
+    # ------------------------------------------------------------------
     if fairness_label == "공정":
-        # '공정'일 땐 '불공정 유형'이 없으므로 텍스트만으로 검색 (대조 검색)
         search_query = state['cleaned_text']
         print(f"[노드4] 검색 ('공정' 대조 전략. 임계값: {current_threshold:.0%})")
     else:
-        # '불공정'일 땐 유형을 포함하여 검색 (기존 방식)
-        search_query = f"{state['unfair_type']} {state['cleaned_text']}"
+        search_query = f"{state['cleaned_text']}"
         print(f"[노드4] 검색 ('불공정' 전략. 임계값: {current_threshold:.0%})")
-    # --------------
     
-    print(f"\n[노드4] 유사 사례 검색 중...\n")
-    
-    # 1. 사례 검색 (유사도 점수 포함)
-    # 이 함수는 (doc, similarity_score) 튜플을 반환합니다. (1.0이 100% 유사)
+    print(f"\n[노드4] 유사 사례 및 법령 검색 중...\n")
+
+    # ------------------------------------------------------------------
+    # 2. 사례(Case) 검색
+    # ------------------------------------------------------------------
     results_cases_with_scores = vectorstore.similarity_search_with_relevance_scores(
         search_query, 
         k=SEARCH_TOP_K_CASES, 
@@ -191,13 +190,11 @@ def retrieve_node(state: ContractState, vectorstore: Chroma):
     
     filtered_cases_meta = []
     for i, (doc, similarity_score) in enumerate(results_cases_with_scores, 1):
-        
-        # similarity_score (예: 0.75)를 current_threshold (예: 0.70)와 직접 비교
         if similarity_score >= current_threshold:
-            print(f"  ✓ 사례 통과 (유사도 {similarity_score:.1%})") # 디버깅용 로그
+            print(f"  ✓ 사례 통과 (유사도 {similarity_score:.1%})")
             filtered_cases_meta.append({
                 "index": i,
-                "similarity": similarity_score, # 계산이 아닌, 반환된 점수 그대로 사용
+                "similarity": similarity_score,
                 "content": doc.page_content,
                 "date": doc.metadata.get('date', 'N/A'),
                 "case_type": doc.metadata.get('case_type', ''),
@@ -206,87 +203,94 @@ def retrieve_node(state: ContractState, vectorstore: Chroma):
                 "related_law": doc.metadata.get('related_law', '')
             })
         else:
-            print(f"  ✗ 사례 필터됨 (유사도 {similarity_score:.1%})") # 디버깅용 로그
+            # print(f"  ✗ 사례 필터됨 (유사도 {similarity_score:.1%})") # 디버깅 필요 시 주석 해제
+            pass
 
-    # 표시 개수 제한
     final_cases_meta = filtered_cases_meta[:MAX_DISPLAY_CASES]
+
+    # ------------------------------------------------------------------
+    # 3. 법령(Law) 검색 + Re-ranking (우선순위 적용)
+    # ------------------------------------------------------------------
+    law_query = search_query # 쿼리 할당
     
-    # 2. 법령 검색
-    law_query = search_query
-        
-    results_laws_with_scores = vectorstore.similarity_search_with_relevance_scores(
+    # (1) 후보를 넉넉하게 가져옵니다 (3배수)
+    candidates = vectorstore.similarity_search_with_relevance_scores(
         law_query, 
-        k=SEARCH_TOP_K_LAWS, 
+        k=SEARCH_TOP_K_LAWS * 3, 
         filter={"source_type": "law"}
     )
-    final_laws_meta = []
-    for i, (doc, similarity_score) in enumerate(results_laws_with_scores, 1):
-        if similarity_score >= current_threshold:
-            final_laws_meta.append({
-                "index": i,
-                "similarity": similarity_score,
-                "content": doc.page_content,
-                "metadata": doc.metadata
-            })
-    final_laws_meta = final_laws_meta[:MAX_DISPLAY_LAWS]
     
-    # 3. LLM 프롬프트용 텍스트 생성
-    # 3a. LLM에 전달할 '가장 최신 사례' 1건 찾기
+    # (2) 유효한 후보 추리기 & 우선순위 추출
+    valid_candidates = []
+    for doc, score in candidates:
+        if score >= current_threshold:
+            # 메타데이터에서 우선순위 가져오기 (없으면 99)
+            priority = doc.metadata.get('law_priority', 99)
+            valid_candidates.append({
+                'doc': doc,
+                'score': score,
+                'priority': priority
+            })
+    
+    # (3) 정렬 (Re-ranking): 1순위 priority(오름차순), 2순위 score(내림차순)
+    sorted_candidates = sorted(
+        valid_candidates, 
+        key=lambda x: (x['priority'], -x['score']) 
+    )
+    
+    # (4) 상위 N개 자르기
+    final_laws_meta = []
+    for item in sorted_candidates[:MAX_DISPLAY_LAWS]:
+        doc = item['doc']
+        final_laws_meta.append({
+            "index": len(final_laws_meta) + 1,
+            "similarity": item['score'],
+            "content": doc.page_content,
+            "metadata": doc.metadata
+        })
+
+    # ------------------------------------------------------------------
+    # 4. LLM 프롬프트용 텍스트 생성
+    # ------------------------------------------------------------------
     latest_case = None
     if final_cases_meta:
         try:
-            # 'date' (YYYY-MM-DD 형식)를 기준으로 최신 날짜의 사례를 찾습니다.
             latest_case = max(
                 (c for c in final_cases_meta if c.get('date', '0000-00-00') != 'N/A'), 
                 key=lambda x: x.get('date', '0000-00-00'),
                 default=None
             )
         except Exception:
-            # 날짜 비교 중 오류 발생 시, 그냥 첫 번째 사례를 사용 (안전장치)
             latest_case = final_cases_meta[0]
         
-    # 3b. LLM 프롬프트용 텍스트(retrieved_text) 생성
     if latest_case:
-        # LLM에는 최신 사례 1건만 전달
-        retrieved_text = f"[유사 시정 사례]"
-        
-        # --- [최종 수정: 모든 정보 제공하되 명확한 라벨링] ---
+        retrieved_text = f"[유사 시정 사례]\n"
         case_summary_parts = []
         
         explanation = str(latest_case.get('explanation', '')).strip()
         conclusion = str(latest_case.get('conclusion', '')).strip()
-        content = str(latest_case.get('content', '')).strip() # 약관 조항 원문
+        content = str(latest_case.get('content', '')).strip()
         
-        # 1. 불공정 약관 조항 (문맥 파악용 - 나쁜 예시임을 명시)
-        if content:
-             case_summary_parts.append(f"  * [불공정 약관 조항 (참고용)]: {content}")
-        
-        # 2. 시정 요청 사유 (법적 논리)
-        if explanation:
-             case_summary_parts.append(f"  * [시정 요청 사유 (위법 사유)]: {explanation}")
-                 
-        # 3. 심사 결론 (수정 가이드)
-        if conclusion:
-             case_summary_parts.append(f"  * [심사 결론 (수정 방향)]: {conclusion}")
+        if content: case_summary_parts.append(f"  * [불공정 약관 조항]: {content}")
+        if explanation: case_summary_parts.append(f"  * [시정 요청 사유]: {explanation}")
+        if conclusion: case_summary_parts.append(f"  * [심사 결론]: {conclusion}")
             
-        # 리스트에 담긴 내용을 줄바꿈으로 합치기
         final_summary = "\n".join(case_summary_parts)
-        
-        retrieved_text += f"\n- 사례{latest_case['index']} (유사도 {latest_case['similarity']:.1%}):\n{final_summary}\n"
+        retrieved_text += f"- 사례{latest_case['index']} (유사도 {latest_case['similarity']:.1%}):\n{final_summary}\n"
         
         if latest_case['related_law']:
             retrieved_text += f"  (관련법: {latest_case['related_law']})\n"
-            
     else:
-        # 검색된 사례가 없으면 0건으로 표시
         retrieved_text = f"[유사 시정 사례] (0건)\n"
 
     retrieved_text += f"\n[관련 법령] ({len(final_laws_meta)}건)\n"
     for l in final_laws_meta:
-        retrieved_text += f"- 법령{l['index']} (유사도 {l['similarity']:.1%}): {l['content']}\n"
+        # 출처 파일명 표시 (디버깅 및 확인용)
+        source_file = l['metadata'].get('source_file', '법령')
+        retrieved_text += f"- 법령{l['index']} (출처: {source_file}, 유사도 {l['similarity']:.1%}): {l['content']}\n"
     
     print("\n" + "="*60)
-    print(f"[DEBUG] AI에게 전달되는 참고 자료(retrieved_text):\n{retrieved_text}")
+    print(f"[DEBUG] AI에게 전달되는 참고 자료:\n{retrieved_text}")
     print("="*60 + "\n")
     
     return {
