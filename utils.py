@@ -52,27 +52,45 @@ def is_valid_contract_clause(clause: str) -> tuple[bool, str]:
     
     return True, "검증 통과"
 
-def save_result(state: ContractState, status: str, iteration: int,
+def save_result(state: dict, status: str, iteration: int,
                 modify_reason: str = "", total_iterations: int = None):
-    """결과를 .jsonl 파일로 저장합니다. (nodes.py에서 이동)"""
-    result = {
-        "timestamp": datetime.now().isoformat(),
-        "session_id": state['session_id'],
-        "status": status,
-        "iteration": iteration,
-        "total_iterations": total_iterations or iteration,
-        "original_clause": state['clause'],
-        "cleaned_text": state['cleaned_text'],
-        "unfair_type": state['unfair_type'],
-        "improvement_proposal": state['improvement_proposal'],
-        "modify_reason": modify_reason
-    }
-    log_dir = "logs"
-    os.makedirs(log_dir, exist_ok=True)
-    filename = os.path.join(log_dir, f"{status}_data.jsonl")
-    
-    with open(filename, 'a', encoding='utf-8') as f:
-        f.write(json.dumps(result, ensure_ascii=False) + '\n')
+    """
+    [수정됨] 결과를 logs 폴더에 저장합니다. (에러 방지 및 디버깅 강화)
+    """
+    try:
+        # 1. 데이터 추출 (KeyError 방지 위해 .get 사용)
+        result = {
+            "timestamp": datetime.now().isoformat(),
+            "session_id": state.get('session_id', 'unknown'),
+            "user_email": state.get('user_email', 'unknown'),
+            "user_name": state.get('user_name', 'unknown'),
+            "status": status,
+            "iteration": iteration,
+            "total_iterations": total_iterations or iteration,
+            # --- 중요: state에 해당 키가 없으면 빈 문자열 처리 ---
+            "original_clause": state.get('clause', ''),
+            "cleaned_text": state.get('cleaned_text', ''),
+            "unfair_type": state.get('unfair_type', ''),
+            "improvement_proposal": state.get('improvement_proposal', ''),
+            "user_feedback": state.get('user_feedback', ''),
+            "modify_reason": modify_reason or state.get('modify_reason', '')
+        }
+
+        # 2. 폴더 생성
+        log_dir = "logs"
+        os.makedirs(log_dir, exist_ok=True)
+        
+        # 3. 파일 쓰기 (feedback_log.jsonl 하나에 누적)
+        filename = os.path.join(log_dir, "feedback_log.jsonl")
+        
+        with open(filename, 'a', encoding='utf-8') as f:
+            f.write(json.dumps(result, ensure_ascii=False) + '\n')
+            
+        print(f"✅ [Log Saved] {status} 저장 성공 -> {filename}")
+
+    except Exception as e:
+        # 에러가 나도 멈추지 않고 콘솔에만 출력
+        print(f"❌ [Log Error] 로그 저장 실패: {str(e)}")
 
 def extract_text_from_pdf(uploaded_file):
     """PDF 파일에서 텍스트를 추출합니다.  (pdf_module.py에서 이동)"""

@@ -1,4 +1,4 @@
-from typing import TypedDict, List, Tuple, Dict, Any
+from typing import TypedDict, List, Tuple, Dict, Any, Optional
 
 class ContractState(TypedDict):
     """
@@ -19,6 +19,10 @@ class ContractState(TypedDict):
     retrieved_cases_metadata: List[Dict[str, Any]]
     retrieved_laws_metadata: List[Dict[str, Any]]
     similarity_threshold: float     # RAG 검색 시 사용할 유사도 임계값
+    
+    # 사용자 정보 필드
+    user_email: Optional[str]
+    user_name: Optional[str]
     
     # 공정/불공정 분류 관련
     fairness_label: str             # 최종 공정/불공정 분류 ("공정", "불공정")
