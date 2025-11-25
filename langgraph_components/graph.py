@@ -161,3 +161,60 @@ def load_app_safe():
         st.error(f"애플리케이션 로드 실패: {e}")
         st.error(f"Chroma DB 파일('{CHROMA_DB_PATH}') 또는 설정을 확인하세요.")
         return None, None
+    
+
+
+# --- LangGraph Studio용 전역 그래프 정의 --- #
+def build_graph_for_studio():
+    g = StateGraph(ContractState)
+
+    # 노드 등록
+    g.add_node("clean", nodes.clean_text_node)
+    g.add_node("fairness_classification", nodes.fairness_classify_node)
+    g.add_node("classify", nodes.classify_type_node)
+
+    # Studio에서는 vectorstore 없으므로 dummy retrieve 사용
+    def retrieve_dummy(state: ContractState):
+        print("[Studio용] dummy retrieve 실행")
+        return {
+            "related_cases": "",
+            "retrieved_cases_metadata": [],
+            "retrieved_laws_metadata": [],
+        }
+
+    g.add_node("retrieve", retrieve_dummy)
+    g.add_node("generate_proposal", nodes.generate_proposal_node)
+    g.add_node("generate_fair_report", nodes.generate_fair_report_node)
+    g.add_node("feedback", nodes.interrupt_for_feedback_node)
+    g.add_node("process_feedback", nodes.process_feedback_node)
+
+    # 엣지 연결
+    g.set_entry_point("clean")
+    g.add_conditional_edges("clean", route_after_clean, {
+        "end": END, "fairness_classification": "fairness_classification"
+    })
+    g.add_conditional_edges("fairness_classification", route_after_fairness, {
+        "fairness_classification": "fairness_classification",
+        "classify": "classify",
+        "retrieve": "retrieve",
+        "end": END
+    })
+    g.add_edge("classify", "retrieve")
+    g.add_conditional_edges("retrieve", route_after_retrieve, {
+        "generate_fair_report": "generate_fair_report",
+        "generate_proposal": "generate_proposal"
+    })
+    g.add_edge("generate_fair_report", END)
+    g.add_edge("generate_proposal", "feedback")
+    g.add_edge("feedback", "process_feedback")
+    g.add_conditional_edges("process_feedback", route_feedback, {
+        "end": END, "generate": "generate_proposal"
+    })
+
+    return g.compile()
+
+# Studio가 인식할 전역 객체
+graph = build_graph_for_studio()
+
+# --- LangGraph Studio용 전역 그래프 정의 --- #
+

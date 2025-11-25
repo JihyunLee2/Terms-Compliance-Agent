@@ -1,0 +1,9 @@
+{
+  "$schema": "https://langgra.ph/schema.json",
+  "dependencies": ["."],
+  "graphs": {
+    "main": "langgraph_components.graph:graph"
+  },
+  "env": ".env",
+  "port": 2024
+}
