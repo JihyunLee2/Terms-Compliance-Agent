@@ -1,25 +1,343 @@
-# 4th-Project
-최종
+# 신용카드 약관 검토 AI 에이전트
 
-### 변경사항
+<div align="center">
 
-1. config2.py 추가
-2. requirements.txt 추가
-3. 유사도 임계점 추가
-4. 코사인 유사도로 변경(DB 삭제하고 다시 구축해야 적용됩니다.)
+![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)
+![Streamlit](https://img.shields.io/badge/Streamlit-1.0+-red.svg)
+![LangGraph](https://img.shields.io/badge/LangGraph-latest-green.svg)
+![License](https://img.shields.io/badge/License-MIT-yellow.svg)
+
+**LangGraph와 Streamlit을 활용한 약관 불공정성 자동 검토 및 개선안 제안 시스템**
+
+법무팀의 신규 약관 작성을 지원하는 AI 기반 내부 도구
+
+## 👥 Team Ensemble 팀원
+이아민, 이지현, 장용석, 허재정
+
+</div>
+
+---
+
+## 📋 목차
+
+- [프로젝트 소개](#-프로젝트-소개)
+- [시연](#-시연)
+- [주요 기능](#-주요-기능)
+- [기술 스택](#-기술-스택)
+- [프로젝트 구조](#-프로젝트-구조)
+- [시작하기](#-시작하기)
+  - [필수 요구사항](#필수-요구사항)
+  - [설치 방법](#설치-방법)
+  - [환경 변수 설정](#환경-변수-설정)
+  - [벡터 DB 구축](#벡터-db-구축)
+- [사용 방법](#-사용-방법)
+- [주요 특징](#-주요-특징)
+- [주의사항](#-주의사항)
 
 <br />
 
-**251114**
+---
 
-5. pdf 탭 추가
-6. 바뀐 csv 파일대로, '유형' 열을 '대분류'로 변경
-7. 청킹 방법 변경 -> 의미 단위로 청킹
-7. 개선안 형식 변경 (진행 중)
-8. 유형 분류 프롬프트 추가 (진행 중)
+## 🎯 프로젝트 소개
 
-### 실행 전 라이브러리 설치
+이 프로젝트는 **신용카드 약관의 불공정성을 자동으로 검토하고 개선안을 제안하는 AI 에이전트**입니다. LangGraph를 활용한 워크플로우와 RAG(Retrieval-Augmented Generation) 기반 검색으로, 법령 및 불공정 사례 데이터베이스를 참조하여 정확한 분석을 제공합니다.
+
+### 핵심 가치
+
+- ⚡ **실시간 분석**: 약관 조항을 즉시 분석하여 불공정 여부, 유형, 개선안을 제공
+- 📄 **일괄 처리**: PDF 약관 파일 전체를 자동으로 분리하여 불공정 의심 조항 목록 리포트
+- 🔍 **RAG 기반 검색**: 관련 법령 및 유사 불공정 사례를 자동으로 검색하여 참조
+- 🔄 **반복 개선**: HITL(Human-In-The-Loop) 방식으로 최대 4회까지 개선안 수정 가능
+
+<br />
+
+---
+
+## ▶️ 시연
+
+- 로그인, 챗봇에 새로운 약관 입력
+  
+  ![금융1](https://github.com/user-attachments/assets/e74f7824-ae18-4902-8f19-01e8cbdca89f)
+
+- 다른 개선안 생성, PDF (전체 문서 분석), 사용 가이드 보기, 데이터 구조/판단 기준 보기
+
+  ![금융2](https://github.com/user-attachments/assets/d5d0a624-961a-43c0-b47f-2d0a9533d9e7)
+
+<br />
+
+---
+
+## ✨ 주요 기능
+
+### 1. 💬 챗봇 모드 (단일 조항 분석)
+
+- 사용자가 입력한 약관 조항 1개를 즉시 분석
+- **불공정 여부 분류**: 공정/불공정 자동 판단
+- **불공정 유형 분류**: 7가지 불공정 유형 중 해당 유형 자동 분류
+- **유사 사례 검색**: RAG를 통한 관련 불공정 시정 사례 제공
+- **참고 법령 검색**: 관련 법령 조항 자동 검색
+- **개선안 제안**: 구체적인 개선안 및 Redline 버전 제공
+- **반복 개선**: 사용자 피드백을 바탕으로 최대 3회까지 수정 가능
+
+### 2. 📄 PDF 모드 (전체 문서 분석)
+
+- PDF 약관 파일 전체 업로드
+- 조항 단위 자동 분리 (제N조 단위)
+- 불공정 의심 조항 목록 리포트 생성
+- 유사도 점수 및 우선순위 표시
+- 전체 문서 요약 리포트 제공
+
+### 3. 🔐 사용자 인증
+
+- Streamlit Authenticator 기반 로그인 시스템
+- 세션별 분석 기록 관리
+
+<br />
+
+---
+
+## 🛠 기술 스택
+
+### 프레임워크 & 라이브러리
+
+- **Frontend**: Streamlit
+- **AI Framework**: LangGraph, LangChain
+- **LLM**: Upstage Solar Pro 2 (`solar-pro2`)
+- **Embeddings**: Upstage Solar Embedding (`solar-embedding-1-large-passage`)
+- **Vector DB**: ChromaDB
+- **Text Processing**: pypdf, RecursiveCharacterTextSplitter
+- **Data Handling**: pandas
+
+<br />
+
+---
+
+## 📁 프로젝트 구조
+
+```
+4th-Project/
+├── .env                    # 환경 변수 파일 (로컬 전용, .gitignore)
+├── app.py                  # 메인 Streamlit 애플리케이션
+├── config2.py              # 설정 (API 키, DB 경로, 상수)
+├── utils.py                # 공통 유틸 함수 (PDF 처리, RAG 포맷팅 등)
+├── requirements.txt        # Python 의존성 목록
+├── README.md               # 프로젝트 문서
+├── .gitignore              # Git 제외 파일
+│
+├── auth/                   # 인증 모듈
+│   ├── auth_manager.py     # 인증 관리자
+│   ├── config.yaml         # 사용자 인증 설정
+│   └── keygen.py           # 키 생성 유틸
+│
+├── langgraph_components/   # LangGraph 워크플로우
+│   ├── __init__.py
+│   ├── graph.py            # 그래프 정의 및 라우팅
+│   ├── nodes.py            # 노드 로직 (검증, 분류, 생성 등)
+│   ├── state.py            # 상태 정의 (ContractState)
+│   └── prompts.py          # LLM 프롬프트 템플릿
+│
+├── ui_modules/             # Streamlit UI 하위 모듈
+│   ├── __init__.py
+│   ├── chat_ui.py          # 챗봇 모드 UI
+│   ├── pdf_module.py       # PDF 일괄 처리 UI
+│   └── guide_ui.py         # 사용 가이드 UI
+│
+├── scripts/                # 일회성 실행 스크립트
+│   ├── build_vectordb.py   # Vector DB 생성 스크립트
+│   └── vectordb_config.json # Vector DB 설정
+│
+├── data/                   # 벡터 DB 생성용 원본 데이터
+│   ├── 1_약관법.pdf
+│   ├── 1-2_약관심사지침.pdf
+│   ├── 2_금융소비자법시행령.pdf
+│   ├── 3_금융소비자보호에관한감독규정.pdf
+│   ├── 4_전자금융거래법.pdf
+│   └── kftc_unfair_terms_cases.csv  # 불공정 사례 데이터셋
+│
+├── chroma_db/              # ChromaDB 저장소 (자동 생성, .gitignore)
+│
+└── logs/                   # 분석 로그 저장소 (자동 생성, .gitignore)
+    └── feedback_log.jsonl  # 피드백 로그 (JSONL 형식)
+```
+
+<br />
+
+---
+
+## 🚀 시작하기
+
+### 필수 요구사항
+
+- Python 3.8 이상
+- Upstage API 키 (Embeddings 및 LLM 사용)
+- (선택) LangSmith API 키 (디버깅 및 모니터링용)
+
+### 설치 방법
+
+1. **저장소 클론**
+   ```bash
+   git clone <repository-url>
+   cd 4th-Project
+   ```
+
+2. **가상 환경 생성 및 활성화**
+   ```bash
+   python -m venv venv
+   
+   # Windows
+   venv\Scripts\activate
+   
+   # macOS/Linux
+   source venv/bin/activate
+   ```
+
+3. **의존성 설치**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+### 환경 변수 설정
+
+프로젝트 루트 디렉토리에 `.env` 파일을 생성하고 아래 내용을 입력하세요.
+
+⚠️ **중요**: `.env` 파일은 `.gitignore`에 포함되어 있어 Git에 커밋되지 않습니다. **절대 API 키를 코드나 Git에 직접 노출하지 마세요.**
+
+```dotenv
+# .env
+
+# 1. Upstage API 키 (필수)
+UPSTAGE_API_KEY=your_upstage_api_key_here
+
+# 2. LangSmith 설정 (선택, 디버깅 및 모니터링용)
+LANGSMITH_API_KEY=your_langsmith_api_key_here
+LANGSMITH_TRACING=true
+LANGSMITH_PROJECT=project_name
+```
+
+### 벡터 DB 구축
+
+애플리케이션을 실행하기 전에 법령 및 불공정 사례 데이터를 벡터 DB로 구축해야 합니다.
 
 ```bash
-pip install -r requirements.txt
+python scripts/build_vectordb.py
 ```
+
+이 스크립트는 `data/` 폴더의 PDF 파일들과 CSV 파일을 읽어 ChromaDB에 저장합니다.
+
+### 애플리케이션 실행
+
+```bash
+streamlit run app.py
+```
+
+브라우저에서 `http://localhost:8501`로 접속하여 사용할 수 있습니다.
+
+<br />
+
+---
+
+## 📖 사용 방법
+
+### 1. 로그인
+
+처음 실행 시 사용자 인증 화면이 표시됩니다. `auth/config.yaml`에 등록된 사용자 정보로 로그인합니다.
+
+### 2. 챗봇 모드 (단일 조항 분석)
+
+1. 메인 화면에서 **"💬 챗봇 (단일 조항 분석)"** 모드를 선택합니다.
+2. 분석하고자 하는 약관 조항을 입력합니다.
+3. **"분석 요청"** 버튼을 클릭합니다.
+4. AI가 불공정 여부, 유형, 유사 사례, 참고 법령, 개선안을 제공합니다.
+5. (선택) 개선안이 마음에 들지 않으면 피드백을 입력하여 수정 요청할 수 있습니다 (최대 3회).
+
+### 3. PDF 모드 (전체 문서 분석)
+
+1. 메인 화면에서 **"📄 PDF (전체 문서 분석)"** 모드를 선택합니다.
+2. PDF 파일을 업로드합니다.
+3. **"분석 시작"** 버튼을 클릭합니다.
+4. 조항 단위로 자동 분리되어 분석됩니다.
+5. 불공정 의심 조항 목록이 리포트로 제공됩니다.
+
+### 4. 사이드바 설정
+
+- **유사도 임계값**: RAG 검색 시 유사도 기준을 조정할 수 있습니다 (0~100%).
+- **사용 가이드 보기**: 워크플로우 및 지원 범위를 확인할 수 있습니다.
+- **데이터 구조 / 판단 기준 보기**: 분석 기준 및 데이터 구조를 확인할 수 있습니다.
+
+<br />
+
+---
+
+## 🔍 주요 특징
+
+### LangGraph 기반 워크플로우
+
+```
+입력 조항
+  ↓
+[검증] (Rule-based)
+  ↓
+[공정/불공정 분류] (LLM)
+  ↓
+  ├─ 공정 → [RAG 검색] → [공정 리포트 생성]
+  └─ 불공정 → [불공정 유형 분류] → [RAG 검색] → [개선안 생성]
+  ↓
+[사용자 피드백] (HITL)
+  ↓
+[수정 반복] (최대 3회)
+```
+
+### RAG (Retrieval-Augmented Generation)
+
+- **법령 검색**: 약관법, 금융소비자법, 전자금융거래법 등 관련 법령 조항 검색
+- **유사 사례 검색**: 공정거래위원회 불공정 시정 사례 검색
+- **유사도 기반 필터링**: 설정 가능한 유사도 임계값으로 관련성 높은 결과만 표시
+
+### HITL (Human-In-The-Loop)
+
+- 사용자 피드백을 바탕으로 개선안을 반복적으로 수정
+- 최대 4회 반복 (초안 1회 + 수정 기회 3회)
+- 각 반복마다 로그 저장 (`logs/feedback_log.jsonl`)
+
+### 안정적인 분류 시스템
+
+- 공정/불공정 분류 시 신뢰도 기반 재시도 (최대 3회)
+- 신뢰도 임계값(0.8) 이상일 때만 결과 확정
+- 불공정 유형 7가지 자동 분류
+
+<br />
+
+---
+
+## ⚠️ 주의사항
+
+> **본 서비스는 법무팀의 신규 약관 작성을 지원하는 내부용 도구입니다. AI 분석은 법적 해석을 대체하지 않으며, 최종 검토·판단 책임은 법무팀 담당자에게 있습니다.**
+
+### 제한 사항
+
+- AI 분석 결과는 참고용이며, 최종 법적 판단은 전문가 검토가 필요합니다.
+- 분석 정확도는 입력된 약관 조항의 명확성에 따라 달라질 수 있습니다.
+- 벡터 DB 구축 시 사용된 법령 데이터는 특정 시점 기준이며, 최신 법령 반영 여부를 확인해야 합니다.
+
+### 환경 요구사항
+
+- 인터넷 연결 필요 (Upstage API 호출)
+- 충분한 메모리 (ChromaDB 및 LLM 응답 처리)
+
+<br />
+
+---
+
+## 📝 라이선스
+
+이 프로젝트는 내부 사용 목적으로 개발되었습니다.
+
+<br />
+
+---
+
+<div align="center">
+
+**Made with ❤️ using LangGraph & Streamlit**
+
+</div>
