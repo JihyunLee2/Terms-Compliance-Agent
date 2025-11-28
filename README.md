@@ -25,6 +25,10 @@
 - **RAG 기반 검색**: 관련 법령 및 유사 불공정 사례를 자동으로 검색하여 참조
 - **반복 개선**: HITL(Human-In-The-Loop) 방식으로 최대 3회까지 개선안 수정 가능
 
+<div align="center">
+<img width="790" height="148" alt="화면 캡처 2025-11-28 150610" src="https://github.com/user-attachments/assets/4fc9afd2-5251-40ee-8bf4-bdc7fa84705c" />
+</div>
+
 <br />
 
 ### 👥 Team Ensemble 팀원
