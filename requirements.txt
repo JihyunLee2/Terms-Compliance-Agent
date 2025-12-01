@@ -1,0 +1,25 @@
+# LangChain / LangGraph
+langchain
+langchain-core
+langgraph
+langchain-chroma
+langchain-upstage
+langchain-text-splitters
+chromadb
+
+# LangGraph Studio CLI
+langgraph-cli[inmem]
+
+# Streamlit (Web App)
+streamlit
+streamlit-authenticator
+
+# Data Handling
+pandas
+pypdf
+
+# Config
+python-dotenv
+
+# Graph
+graphviz
